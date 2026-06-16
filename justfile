@@ -45,6 +45,8 @@ debug_static_link_flags := shared_flags_debug + ' -static -fPIC'
 
 release_compile_flags := shared_flags_release
 debug_compile_flags := shared_flags_debug + ' -Wall -Wextra -Wpedantic -Wno-unused-parameter'
+wayland_compile_flags := '-DBUTTER_WAYLAND'
+x11_compile_flags := '-DBUTTER_X11'
 
 ## Colors
 
@@ -73,6 +75,7 @@ compile-butter platform="wayland" target="debug" force="dont_force" threads=num_
     shopt -s globstar
 
     CURRENT_TARGET_COMPILE_FLAGS=""
+    CURRENT_PLATFORM_COMPILE_FLAGS=""
 
     [[ -d {{ src }} ]] || exit 0
 
@@ -83,8 +86,13 @@ compile-butter platform="wayland" target="debug" force="dont_force" threads=num_
       CURRENT_TARGET_COMPILE_FLAGS="{{ debug_compile_flags }}"
     fi
 
-    [[ -d {{ butter_out }} ]] || mkdir -p {{ butter_out }}
+    if [[ {{ platform }} == "wayland" ]]; then
+        CURRENT_PLATFORM_COMPILE_FLAGS="{{ wayland_compile_flags }}"
+    else
+        CURRENT_PLATFORM_COMPILE_FLAGS="{{ x11_compile_flags }}"
+    fi
 
+    [[ -d {{ butter_out }} ]] || mkdir -p {{ butter_out }}
 
     WILL_COMPILE=false
 
@@ -129,7 +137,7 @@ compile-butter platform="wayland" target="debug" force="dont_force" threads=num_
     check_flags
 
     if [[ ${WILL_COMPILE} == false ]]; then
-      echo -e "Compile: Nothing to do"
+      echo -e "Compile (butter): Nothing to do"
       exit 0
     fi
 
@@ -139,7 +147,7 @@ compile-butter platform="wayland" target="debug" force="dont_force" threads=num_
 
     find {{ butter_src }} -name "*.c" -print0 | xargs -0 -P{{ threads }} -n1 bash -c 'compile "$0"'
 
-    echo -e "Compile: Compiling {{ green }}{{ target }}{{ reset }} complete"
+    echo -e "Compile (butter): Compiling {{ green }}{{ target }}{{ reset }} complete"
 
 assemble-butter platform="wayland" target="debug" static="dynamic" force="dont_force":
     #!/usr/bin/env bash
@@ -190,11 +198,11 @@ assemble-butter platform="wayland" target="debug" static="dynamic" force="dont_f
     check_flags
 
     if [[ $WILL_ASSEMBLE == false ]]; then
-      echo -e "Assemble (bread): Nothing to do"
+      echo -e "Assemble (butter): Nothing to do"
       exit 0
     fi
 
-    echo -e "Assemble (bread)"
+    echo -e "Assemble (butter)"
     echo -e "Assembling {{ green }}{{ target }}{{ reset }}..."
     echo -e "Platform: {{ green }}{{ platform }}{{ reset }}"
 
@@ -213,6 +221,8 @@ assemble-butter platform="wayland" target="debug" static="dynamic" force="dont_f
       gcc -shared -o {{ lib }}/{{ lib_name }}-{{ platform }}-{{ target }}.so {{ butter_out }}/*-{{ platform }}-{{ target }}.o
       strip {{ lib }}/{{ lib_name }}-{{ platform }}-{{ target }}.so
     fi
+
+    echo -e "Assemble (butter): Assembling {{ green }}{{ target }}{{ reset }} on {{ green }}{{ platform }}{{ reset }} complete"
 
 compile-test platform="wayland" force="dont_force" threads=num_cpus():
     #!/usr/bin/env bash

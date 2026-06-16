@@ -1,13 +1,11 @@
-#include <stdlib.h>
-#include <string.h>
-
 #include <htils/basictypes.h>
 #include <vulkan/vulkan.h>
 
-#include "butter_internal.h"
-#include <butter/swapchain.h>
-#include <butter/types.h>
-#include <vulkan/vulkan_core.h>
+#include <butter/internal/swapchain.h>
+#include <butter/internal/types.h>
+
+#define MIN(a, b) ((a) < (b) ? (a) : (b))
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
 
 static void destroy_swapchain_resources(butter_context_t *context) {
   if (context->framebuffers) {
@@ -28,14 +26,10 @@ static void destroy_swapchain_resources(butter_context_t *context) {
     vkDestroyRenderPass(context->device, context->render_pass, null);
     context->render_pass = VK_NULL_HANDLE;
   }
-
-  if (context->swapchain) {
-    vkDestroySwapchainKHR(context->device, context->swapchain, null);
-    context->swapchain = VK_NULL_HANDLE;
-  }
 }
 
-b32 butter_create_swapchain(arena_t *arena, butter_context_t *context) {
+b32 butter_create_swapchain(arena_t *arena, butter_context_t *context,
+                            u32 latency_cap) {
   vk_surface_capabilities_khr_t caps;
   vkGetPhysicalDeviceSurfaceCapabilitiesKHR(context->physical_device,
                                             context->surface, &caps);
@@ -68,6 +62,11 @@ b32 butter_create_swapchain(arena_t *arena, butter_context_t *context) {
   }
 
   u32 image_count = caps.minImageCount + 1;
+  if (latency_cap > 0 && latency_cap != UINT32_MAX) {
+    u32 capped = MIN(image_count, latency_cap);
+    image_count = MAX(capped, caps.minImageCount);
+  }
+
   if (caps.maxImageCount > 0 && image_count > caps.maxImageCount)
     image_count = caps.maxImageCount;
 
@@ -84,11 +83,17 @@ b32 butter_create_swapchain(arena_t *arena, butter_context_t *context) {
       .compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
       .presentMode = VK_PRESENT_MODE_FIFO_KHR,
       .clipped = VK_TRUE,
+      .oldSwapchain = context->swapchain,
   };
 
+  vk_swapchain_khr_t new_swapchain;
   if (vkCreateSwapchainKHR(context->device, &swapchain_create_info, null,
-                           &context->swapchain) != VK_SUCCESS)
+                           &new_swapchain) != VK_SUCCESS)
     return false;
+
+  if (context->swapchain != VK_NULL_HANDLE)
+    vkDestroySwapchainKHR(context->device, context->swapchain, null);
+  context->swapchain = new_swapchain;
 
   vkGetSwapchainImagesKHR(context->device, context->swapchain, &image_count,
                           null);
@@ -164,14 +169,15 @@ b32 butter_create_swapchain(arena_t *arena, butter_context_t *context) {
   return true;
 }
 
-vk_result_t butter_update_surface(arena_t *arena, butter_context_t *context) {
+vk_result_t butter_update_surface(arena_t *arena, butter_context_t *context,
+                                  u32 latency_cap) {
   vkDeviceWaitIdle(context->device);
   destroy_swapchain_resources(context);
 
-  if (!butter_create_swapchain(arena, context))
+  if (!butter_create_swapchain(arena, context, latency_cap))
     return VK_ERROR_OUT_OF_DATE_KHR;
 
-  for (u32 i = 0; i < BUTTER_MAX_FRAMES; i++) {
+  for (u32 i = 0; i < context->image_count; i++) {
     vkDestroySemaphore(context->device, context->rendering_finished[i], null);
     vkDestroySemaphore(context->device, context->image_available[i], null);
     vkDestroyFence(context->device, context->in_flight_fences[i], null);
@@ -186,7 +192,7 @@ vk_result_t butter_update_surface(arena_t *arena, butter_context_t *context) {
       .flags = VK_FENCE_CREATE_SIGNALED_BIT,
   };
 
-  for (u32 i = 0; i < BUTTER_MAX_FRAMES; i++) {
+  for (u32 i = 0; i < context->image_count; i++) {
     vkCreateSemaphore(context->device, &semaphore_info, null,
                       &context->rendering_finished[i]);
     vkCreateSemaphore(context->device, &semaphore_info, null,
@@ -197,31 +203,4 @@ vk_result_t butter_update_surface(arena_t *arena, butter_context_t *context) {
 
   context->frame_index = 0;
   return VK_SUCCESS;
-}
-
-vk_format_t butter_get_format(butter_context_t *context) {
-  return context->format;
-}
-
-vk_extent2d_t butter_get_extent(butter_context_t *context) {
-  return context->extent;
-}
-
-vk_render_pass_t butter_get_default_render_pass(butter_context_t *context) {
-  return context->render_pass;
-}
-
-vk_framebuffer_t butter_get_framebuffer(butter_context_t *context,
-                                        u32 image_index) {
-  if (image_index >= context->image_count)
-    return VK_NULL_HANDLE;
-
-  return context->framebuffers[image_index];
-}
-
-vk_queue_t butter_get_queue(butter_context_t *context) {
-  return context->queue;
-}
-u32 butter_get_queue_family(butter_context_t *context) {
-  return context->queue_family;
 }

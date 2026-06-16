@@ -1,8 +1,8 @@
 #include <htils/basictypes.h>
 #include <vulkan/vulkan.h>
 
-#include "butter_internal.h"
-#include <butter/present.h>
+#include <butter/internal/present.h>
+#include <butter/internal/types.h>
 #include <butter/types.h>
 
 vk_result_t butter_acquire_next_image(butter_context_t *context,
@@ -35,7 +35,7 @@ vk_result_t butter_submit_and_present(butter_context_t *context,
       .commandBufferCount = 1,
       .pCommandBuffers = &cmd,
       .signalSemaphoreCount = 1,
-      .pSignalSemaphores = &context->rendering_finished[frame_index],
+      .pSignalSemaphores = &context->rendering_finished[image_index],
   };
 
   vk_result_t res = vkQueueSubmit(context->queue, 1, &submit_info,
@@ -46,17 +46,13 @@ vk_result_t butter_submit_and_present(butter_context_t *context,
   vk_present_info_khr_t present_info = {
       .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
       .waitSemaphoreCount = 1,
-      .pWaitSemaphores = &context->rendering_finished[frame_index],
+      .pWaitSemaphores = &context->rendering_finished[image_index],
       .swapchainCount = 1,
       .pSwapchains = &context->swapchain,
       .pImageIndices = &image_index,
   };
 
   res = vkQueuePresentKHR(context->queue, &present_info);
-  context->frame_index = (frame_index + 1) % BUTTER_MAX_FRAMES;
+  context->frame_index = (frame_index + 1) % context->image_count;
   return res;
-}
-
-u32 butter_get_frame_index(butter_context_t *context) {
-  return context->frame_index;
 }

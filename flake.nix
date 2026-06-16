@@ -49,6 +49,7 @@
 
         shellHook = ''
           export VK_LAYER_PATH="${pkgs.vulkan-validation-layers}/share/vulkan/explicit_layer.d''${VK_LAYER_PATH:+:}$VK_LAYER_PATH"
+          export LSAN_OPTIONS="$LSAN_OPTIONS:suppressions=asan.supp"
         '';
       };
     });

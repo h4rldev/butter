@@ -1,7 +1,6 @@
 #include <htils/basictypes.h>
 
-#include "butter_internal.h"
-#include <butter/device.h>
+#include <butter/internal/device.h>
 
 b32 butter_select_physical_device(arena_t *arena, butter_context_t *context) {
   u32 count = 0;
@@ -68,8 +67,4 @@ b32 butter_create_device(butter_context_t *context) {
 
   vkGetDeviceQueue(context->device, context->queue_family, 0, &context->queue);
   return true;
-}
-
-vk_device_t butter_get_device(butter_context_t *context) {
-  return context->device;
 }

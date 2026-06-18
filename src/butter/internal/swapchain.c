@@ -29,7 +29,8 @@ static void destroy_swapchain_resources(butter_context_t *context) {
 }
 
 b32 butter_create_swapchain(arena_t *arena, butter_context_t *context,
-                            u32 latency_cap) {
+                            u32 latency_cap, u32 desired_width,
+                            u32 desired_height) {
   vk_surface_capabilities_khr_t caps;
   vkGetPhysicalDeviceSurfaceCapabilitiesKHR(context->physical_device,
                                             context->surface, &caps);
@@ -51,15 +52,23 @@ b32 butter_create_swapchain(arena_t *arena, butter_context_t *context,
       break;
     }
 
-  context->extent = caps.currentExtent;
-  if (context->extent.width == UINT32_MAX) {
-    context->extent.width = 800;
-    context->extent.height = 600;
-    if (context->extent.width > caps.maxImageExtent.width)
-      context->extent.width = caps.maxImageExtent.width;
-    if (context->extent.height > caps.maxImageExtent.height)
-      context->extent.height = caps.maxImageExtent.height;
+  if (desired_width > 0 && desired_height > 0) {
+    context->extent.width = desired_width;
+    context->extent.height = desired_height;
+  } else {
+    context->extent = caps.currentExtent;
+    if (context->extent.width == UINT32_MAX) {
+      context->extent.width = 800;
+      context->extent.height = 600;
+    }
   }
+
+  context->extent.width = MIN(context->extent.width, caps.maxImageExtent.width);
+  context->extent.height =
+      MIN(context->extent.height, caps.maxImageExtent.height);
+  context->extent.width = MAX(context->extent.width, caps.minImageExtent.width);
+  context->extent.height =
+      MAX(context->extent.height, caps.minImageExtent.height);
 
   u32 image_count = caps.minImageCount + 1;
   if (latency_cap > 0 && latency_cap != UINT32_MAX) {
@@ -170,11 +179,13 @@ b32 butter_create_swapchain(arena_t *arena, butter_context_t *context,
 }
 
 vk_result_t butter_update_surface(arena_t *arena, butter_context_t *context,
-                                  u32 latency_cap) {
+                                  u32 latency_cap, u32 desired_width,
+                                  u32 desired_height) {
   vkDeviceWaitIdle(context->device);
   destroy_swapchain_resources(context);
 
-  if (!butter_create_swapchain(arena, context, latency_cap))
+  if (!butter_create_swapchain(arena, context, latency_cap, desired_width,
+                               desired_height))
     return VK_ERROR_OUT_OF_DATE_KHR;
 
   for (u32 i = 0; i < context->image_count; i++) {

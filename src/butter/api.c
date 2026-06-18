@@ -16,7 +16,8 @@
 #endif
 
 butter_t *butter_init(arena_t *arena, butter_surface_info_t *surface_info,
-                      cstr *app_name, b32 use_validation_layers) {
+                      cstr *app_name, b32 use_validation_layers, u32 width,
+                      u32 height) {
   if (!arena || !surface_info)
     return null;
 
@@ -28,8 +29,8 @@ butter_t *butter_init(arena_t *arena, butter_surface_info_t *surface_info,
   if (!instance)
     return null;
 
-  butter_t *butter =
-      butter_create(arena, instance, surface_info, BUTTER_LATENCY_CAP);
+  butter_t *butter = butter_create(arena, instance, surface_info,
+                                   BUTTER_LATENCY_CAP, width, height);
   if (!butter)
     return null;
 
@@ -89,17 +90,17 @@ void butter_set_clear_color(butter_t *butter, f32 r, f32 g, f32 b, f32 a) {
 }
 
 butter_frame_t *butter_begin_frame(arena_t *arena, butter_t *butter) {
+  if (butter->resize_pending) {
+    butter_resize(arena, butter, butter->pending_width, butter->pending_height);
+    butter->resize_pending = false;
+  }
+
   vk_extent2d_t extent = butter->extent;
   if (extent.width == 0 || extent.height == 0)
     return null;
 
   u32 image_index = 0;
   vk_result_t res = butter_acquire_next_image(butter, &image_index);
-  if (res == VK_ERROR_OUT_OF_DATE_KHR) {
-    butter_resize(arena, butter);
-    res = butter_acquire_next_image(butter, &image_index);
-  }
-
   if (res != VK_SUCCESS)
     return null;
 
@@ -142,7 +143,7 @@ vk_result_t butter_end_frame(arena_t *arena, butter_t *butter,
   return butter_submit_and_present(butter, frame->cmd, frame->image_index);
 }
 
-void butter_resize(arena_t *arena, butter_t *butter) {
+void butter_resize(arena_t *arena, butter_t *butter, u32 width, u32 height) {
   vk_command_pool_create_info_t pool_info = {
       .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
       .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
@@ -151,7 +152,7 @@ void butter_resize(arena_t *arena, butter_t *butter) {
 
   vkDeviceWaitIdle(butter->device);
   vkDestroyCommandPool(butter->device, butter->cmd_pool, null);
-  butter_update_surface(arena, butter, BUTTER_LATENCY_CAP);
+  butter_update_surface(arena, butter, BUTTER_LATENCY_CAP, width, height);
 
   vkCreateCommandPool(butter->device, &pool_info, null, &butter->cmd_pool);
 

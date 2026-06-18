@@ -9,11 +9,15 @@ vk_result_t butter_acquire_next_image(butter_context_t *context,
                                       u32 *image_index) {
   u32 frame_index = context->frame_index;
 
-  vkWaitForFences(context->device, 1, &context->in_flight_fences[frame_index],
-                  VK_TRUE, UINT64_MAX);
+  vk_result_t res = vkWaitForFences(context->device, 1,
+                                    &context->in_flight_fences[frame_index],
+                                    VK_TRUE, 100000000);
+  if (res != VK_SUCCESS)
+    return res;
+
   vkResetFences(context->device, 1, &context->in_flight_fences[frame_index]);
 
-  return vkAcquireNextImageKHR(context->device, context->swapchain, UINT64_MAX,
+  return vkAcquireNextImageKHR(context->device, context->swapchain, 100000000,
                                context->image_available[frame_index],
                                VK_NULL_HANDLE, image_index);
 }

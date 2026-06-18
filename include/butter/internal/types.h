@@ -85,6 +85,10 @@ typedef struct butter_context {
   vk_command_pool_t cmd_pool;
   vk_command_buffer_t *cmds;
   vk_clear_value_t clear_color;
+
+  u32 pending_width;
+  u32 pending_height;
+  b32 resize_pending;
 } butter_context_t;
 
 #endif // !BUTTER_INTERNAL_TYPES_H

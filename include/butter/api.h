@@ -7,7 +7,8 @@
 #include <butter/types.h>
 
 butter_t *butter_init(arena_t *arena, butter_surface_info_t *surface_info,
-                      cstr *app_name, b32 use_validation_layers);
+                      cstr *app_name, b32 use_validation_layers, u32 width,
+                      u32 height);
 void butter_end(butter_t *butter);
 
 void butter_set_clear_color(butter_t *butter, f32 r, f32 g, f32 b, f32 a);
@@ -16,6 +17,6 @@ butter_frame_t *butter_begin_frame(arena_t *arena, butter_t *butter);
 vk_result_t butter_end_frame(arena_t *arena, butter_t *butter,
                              butter_frame_t *frame);
 
-void butter_resize(arena_t *arena, butter_t *butter);
+void butter_resize(arena_t *arena, butter_t *butter, u32 width, u32 height);
 
 #endif // !BUTTER_API_H

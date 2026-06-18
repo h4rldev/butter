@@ -94,7 +94,7 @@ vk_instance_t butter_create_instance(arena_t *arena, const cstr *app_name,
 
 butter_context_t *butter_create(arena_t *arena, vk_instance_t instance,
                                 const butter_surface_info_t *surface_info,
-                                u32 latency_cap) {
+                                u32 latency_cap, u32 width, u32 height) {
   butter_context_t *context = arena_alloc(arena, butter_context_t, 1);
   if (!context)
     return null;
@@ -109,7 +109,7 @@ butter_context_t *butter_create(arena_t *arena, vk_instance_t instance,
     goto fail;
   if (!butter_create_device(context))
     goto fail;
-  if (!butter_create_swapchain(arena, context, latency_cap))
+  if (!butter_create_swapchain(arena, context, latency_cap, width, height))
     goto fail;
 
   vk_semaphore_create_info_t semaphore_info = {

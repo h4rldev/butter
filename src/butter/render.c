@@ -50,6 +50,8 @@ static void butter_limit_frame_rate(butter_t *butter, u64 frame_start_ns) {
 butter_t *butter_init(arena_t *arena, butter_surface_info_t *surface_info,
                       cstr *app_name, b32 use_validation_layers, u32 width,
                       u32 height) {
+  vk_result_t res;
+
   butter_log_debug("Initializing butter");
   if (!arena || !surface_info)
     return null;
@@ -75,31 +77,30 @@ butter_t *butter_init(arena_t *arena, butter_surface_info_t *surface_info,
   }
 
   butter_log_debug("Creating command pool");
-  vk_command_pool_create_info_t pool_info = {
-      .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
-      .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
-      .queueFamilyIndex = butter->queue_family,
-  };
+  vk_command_pool_create_info_t pool_info = {0};
+  pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+  pool_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+  pool_info.queueFamilyIndex = butter->queue_family;
 
-  vk_result_t res =
-      vkCreateCommandPool(butter->device, &pool_info, null, &butter->cmd_pool);
-  if (res != VK_SUCCESS) {
+  if ((res = vkCreateCommandPool(butter->device, &pool_info, null,
+                                 &butter->cmd_pool)) != VK_SUCCESS) {
     butter_log_fatal("Could not create command pool");
     butter_destroy(butter);
     return null;
   }
+
   butter->cmds =
       arena_alloc_zeroed(arena, vk_command_buffer_t, butter->image_count);
-  vk_command_buffer_allocate_info_t alloc_info = {
-      .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-      .commandPool = butter->cmd_pool,
-      .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-      .commandBufferCount = butter->image_count,
-  };
+
+  vk_command_buffer_allocate_info_t alloc_info = {0};
+  alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+  alloc_info.commandPool = butter->cmd_pool;
+  alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+  alloc_info.commandBufferCount = butter->image_count;
 
   butter_log_debug("Allocating command buffers");
-  res = vkAllocateCommandBuffers(butter->device, &alloc_info, butter->cmds);
-  if (res != VK_SUCCESS) {
+  if ((res = vkAllocateCommandBuffers(butter->device, &alloc_info,
+                                      butter->cmds)) != VK_SUCCESS) {
     butter_log_fatal("Could not allocate command buffers");
     vkDestroyCommandPool(butter->device, butter->cmd_pool, null);
     butter_destroy(butter);
@@ -176,10 +177,9 @@ butter_frame_t *butter_begin_frame(arena_t *arena, butter_t *butter) {
 
   u32 frame_index = butter->frame_index;
   vk_command_buffer_t cmd = butter->cmds[frame_index];
-  vk_command_buffer_begin_info_t begin_info = {
-      .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-      .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
-  };
+  vk_command_buffer_begin_info_t begin_info = {0};
+  begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+  begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 
   res = vkResetCommandBuffer(cmd, 0);
   if (res != VK_SUCCESS)
@@ -191,21 +191,20 @@ butter_frame_t *butter_begin_frame(arena_t *arena, butter_t *butter) {
     return null;
   }
 
-  vk_render_pass_begin_info_t rp_begin = {
-      .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
-      .renderPass = butter->render_pass,
-      .framebuffer = butter->framebuffers[image_index],
-      .renderArea.extent = extent,
-      .renderArea.offset = {0, 0},
-      .clearValueCount = 1,
-      .pClearValues = &butter->clear_color,
-  };
+  vk_render_pass_begin_info_t rp_begin = {0};
+  rp_begin.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+  rp_begin.renderPass = butter->render_pass;
+  rp_begin.framebuffer = butter->framebuffers[image_index];
+  rp_begin.renderArea.extent = extent;
+  rp_begin.renderArea.offset = (vk_offset2d_t){0};
+  rp_begin.clearValueCount = 1;
+  rp_begin.pClearValues = &butter->clear_color;
 
   // butter_log_debug("Beginning render pass");
   vkCmdBeginRenderPass(cmd, &rp_begin, VK_SUBPASS_CONTENTS_INLINE);
 
   // butter_log_debug("Creating frame");
-  butter_frame_t *frame = arena_alloc(arena, butter_frame_t, 1);
+  butter_frame_t *frame = arena_alloc_zeroed(arena, butter_frame_t, 1);
   frame->cmd = cmd;
   frame->fb = butter->framebuffers[image_index];
   frame->image_index = image_index;
@@ -230,11 +229,10 @@ vk_result_t butter_end_frame(arena_t *arena, butter_t *butter,
 
 void butter_resize(arena_t *arena, butter_t *butter, u32 width, u32 height) {
   butter_log_debug("Resizing butter surface window");
-  vk_command_pool_create_info_t pool_info = {
-      .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
-      .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
-      .queueFamilyIndex = butter->queue_family,
-  };
+  vk_command_pool_create_info_t pool_info = {0};
+  pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+  pool_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+  pool_info.queueFamilyIndex = butter->queue_family;
 
   vk_result_t res = vkDeviceWaitIdle(butter->device);
   if (res != VK_SUCCESS) {
@@ -243,22 +241,25 @@ void butter_resize(arena_t *arena, butter_t *butter, u32 width, u32 height) {
   }
 
   vkDestroyCommandPool(butter->device, butter->cmd_pool, null);
-  res = butter_update_surface(arena, butter, BUTTER_LATENCY_CAP, width, height);
+  if ((res = butter_update_surface(arena, butter, BUTTER_LATENCY_CAP, width,
+                                   height)) != VK_SUCCESS)
+    butter_log_error("Could not update surface: %d", res);
 
-  res =
-      vkCreateCommandPool(butter->device, &pool_info, null, &butter->cmd_pool);
+  if ((res = vkCreateCommandPool(butter->device, &pool_info, null,
+                                 &butter->cmd_pool)) != VK_SUCCESS)
+    butter_log_error("Could not create command pool: %d", res);
 
-  vk_command_buffer_allocate_info_t alloc_info = {
-      .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-      .commandPool = butter->cmd_pool,
-      .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-      .commandBufferCount = butter->image_count,
-  };
+  vk_command_buffer_allocate_info_t alloc_info = {0};
+  alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+  alloc_info.commandPool = butter->cmd_pool;
+  alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+  alloc_info.commandBufferCount = butter->image_count;
 
   butter->cmds =
       arena_alloc_zeroed(arena, vk_command_buffer_t, butter->image_count);
-  res = vkAllocateCommandBuffers(butter->device, &alloc_info, butter->cmds);
-  if (res != VK_SUCCESS)
+
+  if ((res = vkAllocateCommandBuffers(butter->device, &alloc_info,
+                                      butter->cmds)) != VK_SUCCESS)
     butter_log_error("Could not allocate command buffers");
 }
 

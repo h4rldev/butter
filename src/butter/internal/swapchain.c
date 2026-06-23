@@ -131,26 +131,25 @@ b32 butter_create_swapchain(arena_t *arena, butter_context_t *context,
   if (caps.maxImageCount > 0 && image_count > caps.maxImageCount)
     image_count = caps.maxImageCount;
 
-  vk_swapchain_create_info_khr_t swapchain_create_info = {
-      .sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
-      .surface = context->surface,
-      .minImageCount = image_count,
-      .imageFormat = context->format,
-      .imageColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR,
-      .imageExtent = context->extent,
-      .imageArrayLayers = 1,
-      .imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
-      .preTransform = caps.currentTransform,
-      .compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
-      .presentMode = chosen_mode,
-      .clipped = VK_TRUE,
-      .oldSwapchain = context->swapchain,
-  };
+  vk_swapchain_create_info_khr_t swapchain_create_info = {0};
+  swapchain_create_info.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+  swapchain_create_info.surface = context->surface;
+  swapchain_create_info.minImageCount = image_count;
+  swapchain_create_info.imageFormat = context->format;
+  swapchain_create_info.imageColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+  swapchain_create_info.imageExtent = context->extent;
+  swapchain_create_info.imageArrayLayers = 1;
+  swapchain_create_info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+  swapchain_create_info.preTransform = caps.currentTransform;
+  swapchain_create_info.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+  swapchain_create_info.presentMode = chosen_mode;
+  swapchain_create_info.clipped = VK_TRUE;
+  swapchain_create_info.oldSwapchain = context->swapchain;
 
   vk_swapchain_khr_t new_swapchain;
-  if (vkCreateSwapchainKHR(context->device, &swapchain_create_info, null,
-                           &new_swapchain) != VK_SUCCESS) {
-    butter_log_error("Could not create swapchain");
+  if ((res = vkCreateSwapchainKHR(context->device, &swapchain_create_info, null,
+                                  &new_swapchain)) != VK_SUCCESS) {
+    butter_log_error("Could not create swapchain: %d", res);
     return false;
   }
 
@@ -158,86 +157,84 @@ b32 butter_create_swapchain(arena_t *arena, butter_context_t *context,
     vkDestroySwapchainKHR(context->device, context->swapchain, null);
   context->swapchain = new_swapchain;
 
-  res = vkGetSwapchainImagesKHR(context->device, context->swapchain,
-                                &image_count, null);
-  if (res != VK_SUCCESS)
+  if ((res = vkGetSwapchainImagesKHR(context->device, context->swapchain,
+                                     &image_count, null)) != VK_SUCCESS)
     butter_log_error("Could not get swapchain images count");
 
   context->image_count = image_count;
   context->images = arena_alloc_zeroed(arena, vk_image_t, image_count);
-  res = vkGetSwapchainImagesKHR(context->device, context->swapchain,
-                                &image_count, context->images);
-  if (res != VK_SUCCESS)
+  if ((res = vkGetSwapchainImagesKHR(context->device, context->swapchain,
+                                     &image_count, context->images)) !=
+      VK_SUCCESS)
     butter_log_error("Could not get swapchain images");
 
   context->image_views =
       arena_alloc_zeroed(arena, vk_image_view_t, image_count);
-  for (u32 i = 0; i < image_count; i++) {
-    vk_image_view_create_info_t image_view_create_info = {
-        .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-        .image = context->images[i],
-        .viewType = VK_IMAGE_VIEW_TYPE_2D,
-        .format = context->format,
-        .subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-        .subresourceRange.levelCount = 1,
-        .subresourceRange.layerCount = 1,
-    };
 
-    if (vkCreateImageView(context->device, &image_view_create_info, null,
-                          &context->image_views[i]) != VK_SUCCESS) {
-      butter_log_error("Could not create image view at index %d", i);
+  for (u32 i = 0; i < image_count; i++) {
+    vk_image_view_create_info_t image_view_create_info = {0};
+    image_view_create_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    image_view_create_info.image = context->images[i];
+    image_view_create_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    image_view_create_info.format = context->format;
+    image_view_create_info.subresourceRange.aspectMask =
+        VK_IMAGE_ASPECT_COLOR_BIT;
+    image_view_create_info.subresourceRange.levelCount = 1;
+    image_view_create_info.subresourceRange.layerCount = 1;
+
+    if ((res = vkCreateImageView(context->device, &image_view_create_info, null,
+                                 &context->image_views[i])) != VK_SUCCESS) {
+      butter_log_error("Could not create image view at index %d: %d", i, res);
       return false;
     }
   }
 
-  vk_attachment_description_t color_att = {
-      .format = context->format,
-      .samples = VK_SAMPLE_COUNT_1_BIT,
-      .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
-      .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
-      .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-      .finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-  };
+  vk_attachment_description_t color_att = {0};
+  color_att.format = context->format;
+  color_att.samples = VK_SAMPLE_COUNT_1_BIT;
+  color_att.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+  color_att.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+  color_att.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+  color_att.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 
-  vk_attachment_reference_t color_ref = {
-      0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
+  vk_attachment_reference_t color_ref = {0};
+  color_ref.attachment = 0;
+  color_ref.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
-  vk_subpass_description_t subpass = {
-      .pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
-      .colorAttachmentCount = 1,
-      .pColorAttachments = &color_ref,
-  };
+  vk_subpass_description_t subpass = {0};
+  subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+  subpass.colorAttachmentCount = 1;
+  subpass.pColorAttachments = &color_ref;
 
-  vk_render_pass_create_info_t render_pass_create_info = {
-      .sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
-      .attachmentCount = 1,
-      .pAttachments = &color_att,
-      .subpassCount = 1,
-      .pSubpasses = &subpass,
-  };
+  vk_render_pass_create_info_t render_pass_create_info = {0};
+  render_pass_create_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+  render_pass_create_info.attachmentCount = 1;
+  render_pass_create_info.pAttachments = &color_att;
+  render_pass_create_info.subpassCount = 1;
+  render_pass_create_info.pSubpasses = &subpass;
 
-  if (vkCreateRenderPass(context->device, &render_pass_create_info, null,
-                         &context->render_pass) != VK_SUCCESS) {
-    butter_log_error("Could not create render pass");
+  if ((res = vkCreateRenderPass(context->device, &render_pass_create_info, null,
+                                &context->render_pass)) != VK_SUCCESS) {
+    butter_log_error("Could not create render pass: %d", res);
     return false;
   }
 
   context->framebuffers =
       arena_alloc_zeroed(arena, vk_framebuffer_t, image_count);
   for (u32 i = 0; i < image_count; i++) {
-    vk_framebuffer_create_info_t framebuffer_create_info = {
-        .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
-        .renderPass = context->render_pass,
-        .attachmentCount = 1,
-        .pAttachments = &context->image_views[i],
-        .width = context->extent.width,
-        .height = context->extent.height,
-        .layers = 1,
-    };
+    vk_framebuffer_create_info_t framebuffer_create_info = {0};
+    framebuffer_create_info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+    framebuffer_create_info.renderPass = context->render_pass;
+    framebuffer_create_info.attachmentCount = 1;
+    framebuffer_create_info.pAttachments = &context->image_views[i];
+    framebuffer_create_info.width = context->extent.width;
+    framebuffer_create_info.height = context->extent.height;
+    framebuffer_create_info.layers = 1;
 
-    if (vkCreateFramebuffer(context->device, &framebuffer_create_info, null,
-                            &context->framebuffers[i]) != VK_SUCCESS) {
-      butter_log_error("Could not create framebuffer");
+    if ((res = vkCreateFramebuffer(context->device, &framebuffer_create_info,
+                                   null, &context->framebuffers[i])) !=
+        VK_SUCCESS) {
+      butter_log_error("Could not create framebuffer: %d", res);
       return false;
     }
   }
@@ -266,14 +263,12 @@ vk_result_t butter_update_surface(arena_t *arena, butter_context_t *context,
     vkDestroyFence(context->device, context->in_flight_fences[i], null);
   }
 
-  vk_semaphore_create_info_t semaphore_info = {
-      .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
-  };
+  vk_semaphore_create_info_t semaphore_info = {0};
+  semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
 
-  vk_fence_create_info_t fence_info = {
-      .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-      .flags = VK_FENCE_CREATE_SIGNALED_BIT,
-  };
+  vk_fence_create_info_t fence_info = {0};
+  fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+  fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
   for (u32 i = 0; i < context->image_count; i++) {
     vk_result_t res = vkCreateSemaphore(context->device, &semaphore_info, null,

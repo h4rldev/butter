@@ -22,28 +22,27 @@ static vk_surface_khr_t
 create_platform_surface(vk_instance_t instance,
                         const butter_surface_info_t *info) {
   vk_surface_khr_t surface = VK_NULL_HANDLE;
+  vk_result_t res;
+
   switch (info->backend) {
   case BUTTER_BACKEND_XCB: {
-    vk_xcb_surface_create_info_khr_t xcb_info = {
-        .sType = VK_STRUCTURE_TYPE_XCB_SURFACE_CREATE_INFO_KHR,
-        .connection = (xcb_connection_t *)info->display,
-        .window = (xcb_window_t)(uintptr_t)info->handle,
-    };
+    vk_xcb_surface_create_info_khr_t xcb_info = {0};
+    xcb_info.sType = VK_STRUCTURE_TYPE_XCB_SURFACE_CREATE_INFO_KHR;
+    xcb_info.connection = (xcb_connection_t *)info->display;
+    xcb_info.window = (xcb_window_t)(uintptr_t)info->handle;
 
-    vk_result_t res =
-        vkCreateXcbSurfaceKHR(instance, &xcb_info, null, &surface);
-    if (res != VK_SUCCESS)
+    if ((res = vkCreateXcbSurfaceKHR(instance, &xcb_info, null, &surface)) !=
+        VK_SUCCESS)
       butter_log_error("Could not create xcb surface");
   } break;
   case BUTTER_BACKEND_WAYLAND: {
-    vk_wayland_surface_create_info_khr_t wayland_info = {
-        .sType = VK_STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR,
-        .display = (struct wl_display *)info->display,
-        .surface = (struct wl_surface *)info->handle,
-    };
-    vk_result_t res =
-        vkCreateWaylandSurfaceKHR(instance, &wayland_info, null, &surface);
-    if (res != VK_SUCCESS)
+    vk_wayland_surface_create_info_khr_t wayland_info = {0};
+    wayland_info.sType = VK_STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR;
+    wayland_info.display = (struct wl_display *)info->display;
+    wayland_info.surface = (struct wl_surface *)info->handle;
+
+    if ((res = vkCreateWaylandSurfaceKHR(instance, &wayland_info, null,
+                                         &surface)) != VK_SUCCESS)
       butter_log_error("Could not create wayland surface");
   } break;
   }
@@ -76,27 +75,27 @@ vk_instance_t butter_create_instance(arena_t *arena, const cstr *app_name,
   const cstr *validation_layers[] = {"VK_LAYER_KHRONOS_validation"};
   u32 layer_count = validation ? 1 : 0;
 
-  vk_application_info_t app_info = {
-      .sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
-      .pApplicationName = app_name,
-      .applicationVersion = VK_MAKE_VERSION(1, 0, 0),
-      .pEngineName = "butter",
-      .engineVersion = VK_MAKE_VERSION(1, 0, 0),
-      .apiVersion = VK_API_VERSION_1_0,
-  };
+  vk_application_info_t app_info = {0};
+  app_info.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
+  app_info.pApplicationName = app_name;
+  app_info.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
+  app_info.pEngineName = "butter";
+  app_info.engineVersion = VK_MAKE_VERSION(1, 0, 0);
+  app_info.apiVersion = VK_API_VERSION_1_0;
 
-  vk_instance_create_info_t instance_create_info = {
-      .sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
-      .pApplicationInfo = &app_info,
-      .enabledLayerCount = layer_count,
-      .ppEnabledLayerNames = validation_layers,
-      .enabledExtensionCount = total_ext_count,
-      .ppEnabledExtensionNames = all_exts,
-  };
+  vk_instance_create_info_t instance_create_info = {0};
+  instance_create_info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+  instance_create_info.pApplicationInfo = &app_info;
+  instance_create_info.enabledLayerCount = layer_count;
+  instance_create_info.ppEnabledLayerNames = validation_layers;
+  instance_create_info.enabledExtensionCount = total_ext_count;
+  instance_create_info.ppEnabledExtensionNames = all_exts;
 
   vk_instance_t instance = VK_NULL_HANDLE;
-  vk_result_t res = vkCreateInstance(&instance_create_info, null, &instance);
-  if (res != VK_SUCCESS) {
+  vk_result_t res;
+
+  if ((res = vkCreateInstance(&instance_create_info, null, &instance)) !=
+      VK_SUCCESS) {
     butter_log_fatal("Could not create instance: %d\n", res);
     return VK_NULL_HANDLE;
   }
@@ -129,14 +128,12 @@ butter_context_t *butter_create(arena_t *arena, vk_instance_t instance,
   if (!butter_create_swapchain(arena, context, latency_cap, width, height))
     goto fail;
 
-  vk_semaphore_create_info_t semaphore_info = {
-      .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
-  };
+  vk_semaphore_create_info_t semaphore_info = {0};
+  semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
 
-  vk_fence_create_info_t fence_info = {
-      .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-      .flags = VK_FENCE_CREATE_SIGNALED_BIT,
-  };
+  vk_fence_create_info_t fence_info = {0};
+  fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+  fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
   context->rendering_finished =
       arena_alloc_zeroed(arena, vk_semaphore_t, context->image_count);

@@ -28,6 +28,7 @@
           bear
           vulkan-tools
           shaderc
+          tokei
         ];
 
         nativeBuildInputs = with pkgs; [

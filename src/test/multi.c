@@ -3,7 +3,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include <uchar.h>
 
 #include <htils/arena.h>
 #include <htils/basictypes.h>

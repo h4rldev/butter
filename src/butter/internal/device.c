@@ -17,8 +17,8 @@ b32 butter_select_physical_device(arena_t *arena, butter_context_t *context) {
 
   vk_physical_device_t *devices =
       arena_alloc_zeroed(arena, vk_physical_device_t, count);
-  res = vkEnumeratePhysicalDevices(context->instance, &count, devices);
-  if (res != VK_SUCCESS) {
+  if ((res = vkEnumeratePhysicalDevices(context->instance, &count, devices)) !=
+      VK_SUCCESS) {
     butter_log_fatal("Could not enumerate physical devices");
     return false;
   }
@@ -55,28 +55,28 @@ b32 butter_select_physical_device(arena_t *arena, butter_context_t *context) {
 
 b32 butter_create_device(butter_context_t *context) {
   f32 prio = 1.0f;
-  vk_device_queue_create_info_t device_queue_info = {
-      .sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
-      .queueFamilyIndex = context->queue_family,
-      .queueCount = 1,
-      .pQueuePriorities = &prio,
-  };
+  vk_result_t res;
+
+  vk_device_queue_create_info_t device_queue_info = {0};
+  device_queue_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+  device_queue_info.queueFamilyIndex = context->queue_family;
+  device_queue_info.queueCount = 1;
+  device_queue_info.pQueuePriorities = &prio;
 
   const cstr *extensions[] = {
       "VK_KHR_swapchain",
   };
 
-  vk_device_create_info_t device_create_info = {
-      .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
-      .queueCreateInfoCount = 1,
-      .pQueueCreateInfos = &device_queue_info,
-      .enabledExtensionCount = 1,
-      .ppEnabledExtensionNames = extensions,
-  };
+  vk_device_create_info_t device_create_info = {0};
+  device_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+  device_create_info.queueCreateInfoCount = 1;
+  device_create_info.pQueueCreateInfos = &device_queue_info;
+  device_create_info.enabledExtensionCount = 1;
+  device_create_info.ppEnabledExtensionNames = extensions;
 
-  if (vkCreateDevice(context->physical_device, &device_create_info, null,
-                     &context->device) != VK_SUCCESS) {
-    butter_log_fatal("Could not create device");
+  if ((res = vkCreateDevice(context->physical_device, &device_create_info, null,
+                            &context->device)) != VK_SUCCESS) {
+    butter_log_fatal("Could not create device: %d", res);
     return false;
   }
 

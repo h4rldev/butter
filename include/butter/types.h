@@ -139,6 +139,18 @@ typedef struct {
 } butter_descriptor_set_t;
 
 typedef struct {
+  vk_filter_t mag_filter;
+  vk_filter_t min_filter;
+  vk_sampler_mipmap_mode_t mipmap_mode;
+  vk_sampler_address_mode_t address_mode_u;
+  vk_sampler_address_mode_t address_mode_v;
+  vk_sampler_address_mode_t address_mode_w;
+  f32 max_anisotropy;
+  b32 compare_enable;
+  vk_compare_op_t compare_op;
+} butter_sampler_desc_t;
+
+typedef struct {
   vk_image_t image;
   vk_image_view_t view;
   vk_device_memory_t memory;

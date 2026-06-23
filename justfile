@@ -29,12 +29,14 @@ link_flags := '-lhtils -lvulkan -Llib -ldl'
 ## Shared flags
 
 shared_flags_debug := '-ggdb -g -Og -fsanitize=address,undefined,leak -fno-sanitize-recover=all -fno-omit-frame-pointer -fno-optimize-sibling-calls -fsanitize-address-use-after-scope -fno-common -DBUTTER_DEBUG'
-shared_flags_release := '-O2 -std=gnu11'
+shared_flags_release := '-O3 -std=gnu11'
 
 ## Link flags
 
-wayland_link_flags := shared_flags_debug + ' -lwayland-client -lxkbcommon -lbutter-wayland-debug -lbread-wayland-release ' + link_flags
-x11_link_flags := shared_flags_debug + ' -lxkbcommon -lxkbcommon-x11 -lxcb -lxcb-randr -lbutter-x11-debug -lbread-x11-release ' + link_flags
+release_wayland_link_flags := shared_flags_debug + ' -lwayland-client -lxkbcommon -lbutter-wayland-release -lbread-wayland-release ' + link_flags
+release_x11_link_flags := shared_flags_debug + ' -lxkbcommon -lxkbcommon-x11 -lxcb -lxcb-randr -lbutter-x11-release -lbread-x11-release ' + link_flags
+debug_wayland_link_flags := shared_flags_debug + ' -lwayland-client -lxkbcommon -lbutter-wayland-debug -lbread-wayland-release ' + link_flags
+debug_x11_link_flags := shared_flags_debug + ' -lxkbcommon -lxkbcommon-x11 -lxcb -lxcb-randr -lbutter-x11-debug -lbread-x11-release ' + link_flags
 
 ## Static link flags
 
@@ -224,7 +226,7 @@ assemble-butter platform="wayland" target="debug" static="dynamic" force="dont_f
 
     echo -e "Assemble (butter): Assembling {{ green }}{{ target }}{{ reset }} on {{ green }}{{ platform }}{{ reset }} complete"
 
-compile-test platform="wayland" force="dont_force" threads=num_cpus():
+compile-test platform="wayland" target="debug" force="dont_force" threads=num_cpus():
     #!/usr/bin/env bash
     shopt -s globstar
 
@@ -232,8 +234,24 @@ compile-test platform="wayland" force="dont_force" threads=num_cpus():
     [[ -d {{ lib }} ]] || just debug
 
     WILL_COMPILE=false
+    CURRENT_PLATFORM_COMPILE_FLAGS=""
+    CURRENT_TARGET_COMPILE_FLAGS=""
+
+    if [[ {{ platform }} == "wayland" ]]; then
+      CURRENT_PLATFORM_COMPILE_FLAGS="{{ wayland_compile_flags }}"
+    else
+      CURRENT_PLATFORM_COMPILE_FLAGS="{{ x11_compile_flags }}"
+    fi
+
+    if [[ {{ target }} == "release" ]]; then
+      CURRENT_TARGET_COMPILE_FLAGS="{{ release_compile_flags }}"
+    else
+      CURRENT_TARGET_COMPILE_FLAGS="{{ debug_compile_flags }}"
+    fi
 
     export WILL_COMPILE
+    export CURRENT_PLATFORM_COMPILE_FLAGS
+    export CURRENT_TARGET_COMPILE_FLAGS
 
     check_flags() {
       if [[ {{ force }} == "true" || {{ force }} == "force" ]]; then
@@ -270,7 +288,7 @@ compile-test platform="wayland" force="dont_force" threads=num_cpus():
       mkdir -p {{ test_out }}/$(basename "${file%.c}")
 
       echo -e "Compiling {{ green }}$file{{ reset }}..."
-      gcc {{ include_flags }} {{ debug_compile_flags }} ${CURRENT_PLATFORM_COMPILE_FLAGS} -c "$file" -o "{{ test_out }}/$(basename ${file%.c})/${current_out_file}"
+      gcc {{ include_flags }} ${CURRENT_TARGET_COMPILE_FLAGS} ${CURRENT_PLATFORM_COMPILE_FLAGS} -c "$file" -o "{{ test_out }}/$(basename ${file%.c})/${current_out_file}"
     }
 
     export -f compile
@@ -283,7 +301,7 @@ compile-test platform="wayland" force="dont_force" threads=num_cpus():
 
     echo -e "Compile (test): Compiling {{ green }}{{ platform }}{{ reset }} complete"
 
-link-test platform="wayland" force="dont_force":
+link-test platform="wayland" target="debug" force="dont_force":
     #!/usr/bin/env bash
     shopt -s globstar
 
@@ -297,9 +315,17 @@ link-test platform="wayland" force="dont_force":
     CURRENT_PLATFORM_LINK_FLAGS=""
 
     if [[ {{ platform }} == "wayland" ]]; then
-      CURRENT_PLATFORM_LINK_FLAGS="{{ wayland_link_flags }}"
+      if [[ {{ target }} == "release" ]]; then
+        CURRENT_PLATFORM_LINK_FLAGS="{{ release_wayland_link_flags }}"
+      else
+        CURRENT_PLATFORM_LINK_FLAGS="{{ debug_wayland_link_flags }}"
+      fi
     else
-      CURRENT_PLATFORM_LINK_FLAGS="{{ x11_link_flags }}"
+      if [[ {{ target }} == "release" ]]; then
+        CURRENT_PLATFORM_LINK_FLAGS="{{ release_x11_link_flags }}"
+      else
+        CURRENT_PLATFORM_LINK_FLAGS="{{ debug_x11_link_flags }}"
+      fi
     fi
 
     export CURRENT_PLATFORM_LINK_FLAGS
@@ -348,10 +374,10 @@ build-butter platform="wayland" target="debug" force="false" static="dynamic" th
     just assemble-butter {{ platform }} {{ target }} {{ static }} {{ force }}
 
 build-test platform="wayland" target="debug" force="false" threads=num_cpus():
-    just debug {{ platform }} {{ force }} {{ threads }}
+    just {{ target }} {{ platform }} {{ force }} static {{ threads }}
 
-    just compile-test {{ platform }} {{ force }} {{ threads }}
-    just link-test {{ platform }}
+    just compile-test {{ platform }} {{ target }} {{ force }} {{ threads }}
+    just link-test {{ platform }} {{ target }} {{ force }}
 
 release platform="wayland" force="false" static="dynamic" threads=num_cpus():
     just build-butter {{ platform }} release {{ force }} {{ static }} {{ threads }}

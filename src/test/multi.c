@@ -179,8 +179,8 @@ int main(void) {
   arena_t *arena = arena_new(GiB(4), MiB(256));
 
   arena_t *per_frame_arenas[2] = {
-      arena_new(GiB(1), MiB(256)),
-      arena_new(GiB(1), MiB(256)),
+      arena_new(GiB(1), MiB(16)),
+      arena_new(GiB(1), MiB(16)),
   };
 
   srand((unsigned)time(NULL));
@@ -203,7 +203,7 @@ int main(void) {
       .display = bread_window_get_surface(&window).display,
   };
 
-  butter_t *butter = butter_init(arena, &surface_info, "butter", true,
+  butter_t *butter = butter_init(arena, &surface_info, "butter", false,
                                  window.width, window.height);
   if (!butter) {
     fprintf(stderr, "Could not create context\n");
@@ -224,6 +224,9 @@ int main(void) {
   butter_set_draw_callback(butter, draw_triangle, resources);
 
   bread_window_set_event_callback(&window, bread_event_callback, event_data);
+
+  butter_set_vsync(butter, true);
+  butter_set_target_refresh_rate(butter, 60.0f);
 
   u32 current_frame_arena = 0;
   butter_start_render_thread(butter, per_frame_arenas[current_frame_arena]);

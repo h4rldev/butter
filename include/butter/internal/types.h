@@ -46,6 +46,8 @@ typedef VkImageMemoryBarrier vk_image_memory_barrier_t;
 typedef VkImageSubresourceLayers vk_image_subresource_layers_t;
 typedef VkImageSubresourceRange vk_image_subresource_range_t;
 
+typedef VkFilter vk_filter_t;
+
 typedef VkAttachmentDescription vk_attachment_description_t;
 typedef VkAttachmentReference vk_attachment_reference_t;
 typedef VkSubpassDescription vk_subpass_description_t;
@@ -150,6 +152,11 @@ typedef VkViewport vk_viewport_t;
 typedef VkRect2D vk_rect2d_t;
 
 typedef VkSampler vk_sampler_t;
+typedef VkSamplerCreateInfo vk_sampler_create_info_t;
+typedef VkSamplerMipmapMode vk_sampler_mipmap_mode_t;
+typedef VkSamplerAddressMode vk_sampler_address_mode_t;
+
+typedef VkCompareOp vk_compare_op_t;
 
 struct butter_frame {
   vk_command_buffer_t cmd;

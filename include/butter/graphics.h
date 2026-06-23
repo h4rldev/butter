@@ -50,9 +50,20 @@ void butter_update_descriptor_image(butter_t *butter,
                                     vk_image_view_t image_view,
                                     vk_sampler_t sampler);
 
+butter_sampler_desc_t butter_sampler_desc_linear_clamp(void);
+butter_sampler_desc_t butter_sampler_desc_linear_repeat(void);
+butter_sampler_desc_t butter_sampler_desc_nearest_clamp(void);
+butter_sampler_desc_t butter_sampler_desc_anisotropic(f32 max_anisotropy);
+
+vk_sampler_t butter_create_sampler(butter_t *butter,
+                                   const butter_sampler_desc_t *desc);
+
+void butter_destroy_sampler(butter_t *butter, vk_sampler_t sampler);
+
 butter_texture_t butter_create_texture(butter_t *butter, u32 width, u32 height,
                                        vk_format_t format, const void *data,
                                        u64 data_size);
+void butter_destroy_texture(butter_t *butter, butter_texture_t *texture);
 
 void butter_submit_draws(butter_t *butter, const butter_draw_cmd_t *cmds,
                          u32 count);

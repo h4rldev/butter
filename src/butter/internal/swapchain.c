@@ -3,11 +3,12 @@
 
 #include <butter/internal/swapchain.h>
 #include <butter/internal/types.h>
+#include <butter/log.h>
 
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 
-static void destroy_swapchain_resources(butter_context_t *context) {
+void butter_destroy_swapchain_resources(butter_context_t *context) {
   if (context->framebuffers) {
     for (u32 i = 0; i < context->image_count; i++)
       if (context->framebuffers[i])
@@ -31,18 +32,64 @@ static void destroy_swapchain_resources(butter_context_t *context) {
 b32 butter_create_swapchain(arena_t *arena, butter_context_t *context,
                             u32 latency_cap, u32 desired_width,
                             u32 desired_height) {
+  butter_log_debug("Creating swapchain");
+
   vk_surface_capabilities_khr_t caps;
-  vkGetPhysicalDeviceSurfaceCapabilitiesKHR(context->physical_device,
-                                            context->surface, &caps);
+  vk_result_t res = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
+      context->physical_device, context->surface, &caps);
+  if (res != VK_SUCCESS)
+    butter_log_error("Could not get surface capabilities");
+
+  u32 mode_count;
+  vkGetPhysicalDeviceSurfacePresentModesKHR(
+      context->physical_device, context->surface, &mode_count, NULL);
+  vk_present_mode_khr_t *modes =
+      arena_alloc(arena, vk_present_mode_khr_t, mode_count);
+  vkGetPhysicalDeviceSurfacePresentModesKHR(
+      context->physical_device, context->surface, &mode_count, modes);
+
+  vk_present_mode_khr_t chosen_mode = VK_PRESENT_MODE_FIFO_KHR; // fallback
+
+  if (context->vsync) {
+    for (u32 i = 0; i < mode_count; i++)
+      if (modes[i] == VK_PRESENT_MODE_FIFO_KHR) {
+        chosen_mode = VK_PRESENT_MODE_FIFO_KHR;
+        break;
+      }
+
+    if (chosen_mode != VK_PRESENT_MODE_FIFO_KHR && mode_count > 0)
+      chosen_mode = modes[0];
+  } else {
+    for (u32 i = 0; i < mode_count; i++)
+      if (modes[i] == VK_PRESENT_MODE_MAILBOX_KHR) {
+        chosen_mode = VK_PRESENT_MODE_MAILBOX_KHR;
+        break;
+      }
+
+    if (chosen_mode != VK_PRESENT_MODE_MAILBOX_KHR)
+      for (u32 i = 0; i < mode_count; i++)
+        if (modes[i] == VK_PRESENT_MODE_IMMEDIATE_KHR) {
+          chosen_mode = VK_PRESENT_MODE_IMMEDIATE_KHR;
+          break;
+        }
+
+    if (chosen_mode != VK_PRESENT_MODE_MAILBOX_KHR &&
+        chosen_mode != VK_PRESENT_MODE_IMMEDIATE_KHR && mode_count > 0)
+      chosen_mode = modes[0];
+  }
 
   u32 format_count = 0;
-  vkGetPhysicalDeviceSurfaceFormatsKHR(context->physical_device,
-                                       context->surface, &format_count, null);
+  res = vkGetPhysicalDeviceSurfaceFormatsKHR(
+      context->physical_device, context->surface, &format_count, null);
+  if (res != VK_SUCCESS)
+    butter_log_error("Could not get surface format count");
 
   vk_surface_format_khr_t *formats =
-      arena_alloc(arena, vk_surface_format_khr_t, format_count);
+      arena_alloc_zeroed(arena, vk_surface_format_khr_t, format_count);
   vkGetPhysicalDeviceSurfaceFormatsKHR(
       context->physical_device, context->surface, &format_count, formats);
+  if (res != VK_SUCCESS)
+    butter_log_error("Could not get surface formats");
 
   context->format = formats[0].format;
   for (u32 i = 0; i < format_count; i++)
@@ -70,6 +117,11 @@ b32 butter_create_swapchain(arena_t *arena, butter_context_t *context,
   context->extent.height =
       MAX(context->extent.height, caps.minImageExtent.height);
 
+  if (context->extent.width == 0)
+    context->extent.width = 1;
+  if (context->extent.height == 0)
+    context->extent.height = 1;
+
   u32 image_count = caps.minImageCount + 1;
   if (latency_cap > 0 && latency_cap != UINT32_MAX) {
     u32 capped = MIN(image_count, latency_cap);
@@ -90,28 +142,36 @@ b32 butter_create_swapchain(arena_t *arena, butter_context_t *context,
       .imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
       .preTransform = caps.currentTransform,
       .compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
-      .presentMode = VK_PRESENT_MODE_FIFO_KHR,
+      .presentMode = chosen_mode,
       .clipped = VK_TRUE,
       .oldSwapchain = context->swapchain,
   };
 
   vk_swapchain_khr_t new_swapchain;
   if (vkCreateSwapchainKHR(context->device, &swapchain_create_info, null,
-                           &new_swapchain) != VK_SUCCESS)
+                           &new_swapchain) != VK_SUCCESS) {
+    butter_log_error("Could not create swapchain");
     return false;
+  }
 
   if (context->swapchain != VK_NULL_HANDLE)
     vkDestroySwapchainKHR(context->device, context->swapchain, null);
   context->swapchain = new_swapchain;
 
-  vkGetSwapchainImagesKHR(context->device, context->swapchain, &image_count,
-                          null);
-  context->image_count = image_count;
-  context->images = arena_alloc(arena, vk_image_t, image_count);
-  vkGetSwapchainImagesKHR(context->device, context->swapchain, &image_count,
-                          context->images);
+  res = vkGetSwapchainImagesKHR(context->device, context->swapchain,
+                                &image_count, null);
+  if (res != VK_SUCCESS)
+    butter_log_error("Could not get swapchain images count");
 
-  context->image_views = arena_alloc(arena, vk_image_view_t, image_count);
+  context->image_count = image_count;
+  context->images = arena_alloc_zeroed(arena, vk_image_t, image_count);
+  res = vkGetSwapchainImagesKHR(context->device, context->swapchain,
+                                &image_count, context->images);
+  if (res != VK_SUCCESS)
+    butter_log_error("Could not get swapchain images");
+
+  context->image_views =
+      arena_alloc_zeroed(arena, vk_image_view_t, image_count);
   for (u32 i = 0; i < image_count; i++) {
     vk_image_view_create_info_t image_view_create_info = {
         .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
@@ -124,8 +184,10 @@ b32 butter_create_swapchain(arena_t *arena, butter_context_t *context,
     };
 
     if (vkCreateImageView(context->device, &image_view_create_info, null,
-                          &context->image_views[i]) != VK_SUCCESS)
+                          &context->image_views[i]) != VK_SUCCESS) {
+      butter_log_error("Could not create image view at index %d", i);
       return false;
+    }
   }
 
   vk_attachment_description_t color_att = {
@@ -155,10 +217,13 @@ b32 butter_create_swapchain(arena_t *arena, butter_context_t *context,
   };
 
   if (vkCreateRenderPass(context->device, &render_pass_create_info, null,
-                         &context->render_pass) != VK_SUCCESS)
+                         &context->render_pass) != VK_SUCCESS) {
+    butter_log_error("Could not create render pass");
     return false;
+  }
 
-  context->framebuffers = arena_alloc(arena, vk_framebuffer_t, image_count);
+  context->framebuffers =
+      arena_alloc_zeroed(arena, vk_framebuffer_t, image_count);
   for (u32 i = 0; i < image_count; i++) {
     vk_framebuffer_create_info_t framebuffer_create_info = {
         .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
@@ -171,8 +236,10 @@ b32 butter_create_swapchain(arena_t *arena, butter_context_t *context,
     };
 
     if (vkCreateFramebuffer(context->device, &framebuffer_create_info, null,
-                            &context->framebuffers[i]) != VK_SUCCESS)
+                            &context->framebuffers[i]) != VK_SUCCESS) {
+      butter_log_error("Could not create framebuffer");
       return false;
+    }
   }
 
   return true;
@@ -181,12 +248,17 @@ b32 butter_create_swapchain(arena_t *arena, butter_context_t *context,
 vk_result_t butter_update_surface(arena_t *arena, butter_context_t *context,
                                   u32 latency_cap, u32 desired_width,
                                   u32 desired_height) {
-  vkDeviceWaitIdle(context->device);
-  destroy_swapchain_resources(context);
+  vk_result_t res = vkDeviceWaitIdle(context->device);
+  if (res != VK_SUCCESS)
+    butter_log_error("Could not wait for device idle");
+
+  butter_destroy_swapchain_resources(context);
 
   if (!butter_create_swapchain(arena, context, latency_cap, desired_width,
-                               desired_height))
+                               desired_height)) {
+    butter_log_debug("Could not create swapchain, probably out of date");
     return VK_ERROR_OUT_OF_DATE_KHR;
+  }
 
   for (u32 i = 0; i < context->image_count; i++) {
     vkDestroySemaphore(context->device, context->rendering_finished[i], null);
@@ -204,12 +276,18 @@ vk_result_t butter_update_surface(arena_t *arena, butter_context_t *context,
   };
 
   for (u32 i = 0; i < context->image_count; i++) {
-    vkCreateSemaphore(context->device, &semaphore_info, null,
-                      &context->rendering_finished[i]);
-    vkCreateSemaphore(context->device, &semaphore_info, null,
-                      &context->image_available[i]);
-    vkCreateFence(context->device, &fence_info, null,
-                  &context->in_flight_fences[i]);
+    vk_result_t res = vkCreateSemaphore(context->device, &semaphore_info, null,
+                                        &context->rendering_finished[i]);
+    if (res != VK_SUCCESS)
+      butter_log_error("Could not create rendering finished semaphore");
+    res = vkCreateSemaphore(context->device, &semaphore_info, null,
+                            &context->image_available[i]);
+    if (res != VK_SUCCESS)
+      butter_log_error("Could not create image available semaphore");
+    res = vkCreateFence(context->device, &fence_info, null,
+                        &context->in_flight_fences[i]);
+    if (res != VK_SUCCESS)
+      butter_log_error("Could not create in flight fence");
   }
 
   context->frame_index = 0;

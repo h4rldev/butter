@@ -1,12 +1,18 @@
 #ifndef BUTTER_INTERNAL_TYPES_H
 #define BUTTER_INTERNAL_TYPES_H
 
+#include <vulkan/vulkan_core.h>
 #include <xcb/xcb.h>
 
-#include <htils/basictypes.h>
+#include <htils/arena.h>
+#include <htils/atomic_types.h>
+#include <htils/darray.h>
+
 #include <vulkan/vulkan.h>
 #include <vulkan/vulkan_wayland.h>
 #include <vulkan/vulkan_xcb.h>
+
+#include <threads.h>
 
 /** Aliases */
 typedef PFN_vkGetInstanceProcAddr pfn_vkGetInstanceProcAddr;
@@ -21,6 +27,8 @@ typedef VkXcbSurfaceCreateInfoKHR vk_xcb_surface_create_info_khr_t;
 typedef VkWaylandSurfaceCreateInfoKHR vk_wayland_surface_create_info_khr_t;
 typedef VkPhysicalDevice vk_physical_device_t;
 typedef VkPhysicalDeviceProperties vk_physical_device_properties_t;
+typedef VkPhysicalDeviceMemoryProperties vk_physical_device_memory_properties_t;
+
 typedef VkSurfaceCapabilitiesKHR vk_surface_capabilities_khr_t;
 typedef VkDevice vk_device_t;
 typedef VkDeviceQueueCreateInfo vk_device_queue_create_info_t;
@@ -52,6 +60,75 @@ typedef VkCommandPoolCreateInfo vk_command_pool_create_info_t;
 typedef VkCommandBufferAllocateInfo vk_command_buffer_allocate_info_t;
 typedef VkCommandBufferBeginInfo vk_command_buffer_begin_info_t;
 typedef VkClearValue vk_clear_value_t;
+typedef VkDescriptorSet vk_descriptor_set_t;
+typedef VkDescriptorSetLayout vk_descriptor_set_layout_t;
+typedef VkDescriptorSetAllocateInfo vk_descriptor_set_allocate_info_t;
+typedef VkDescriptorPool vk_descriptor_pool_t;
+typedef VkDescriptorPoolSize vk_descriptor_pool_size_t;
+typedef VkDescriptorPoolCreateInfo vk_descriptor_pool_create_info_t;
+typedef VkWriteDescriptorSet vk_write_descriptor_set_t;
+typedef VkDescriptorBufferInfo vk_descriptor_buffer_info_t;
+typedef VkDescriptorImageInfo vk_descriptor_image_info_t;
+typedef VkDescriptorSetLayoutBinding vk_descriptor_set_layout_binding_t;
+typedef VkDescriptorSetLayoutCreateInfo vk_descriptor_set_layout_create_info_t;
+
+typedef VkShaderStageFlagBits vk_shader_stage_flags_t;
+
+typedef VkPipeline vk_pipeline_t;
+typedef VkPipelineCache vk_pipeline_cache_t;
+typedef VkPipelineLayout vk_pipeline_layout_t;
+typedef VkPipelineLayoutCreateInfo vk_pipeline_layout_create_info_t;
+typedef VkPipelineShaderStageCreateInfo vk_pipeline_shader_stage_create_info_t;
+typedef VkPolygonMode vk_polygon_mode_t;
+typedef VkFrontFace vk_front_face_t;
+typedef VkSpecializationInfo vk_specialization_info_t;
+
+typedef VkPrimitiveTopology vk_primitive_topology_t;
+typedef VkCullModeFlags vk_cull_mode_t;
+
+typedef VkVertexInputAttributeDescription
+    vk_vertex_input_attribute_description_t;
+typedef VkVertexInputBindingDescription vk_vertex_input_binding_description_t;
+
+typedef VkPipelineVertexInputStateCreateInfo
+    vk_pipeline_vertex_input_state_create_info_t;
+typedef VkPipelineViewportStateCreateInfo
+    vk_pipeline_viewport_state_create_info_t;
+typedef VkPipelineRasterizationStateCreateInfo
+    vk_pipeline_rasterization_state_create_info_t;
+typedef VkPipelineMultisampleStateCreateInfo
+    vk_pipeline_multisample_state_create_info_t;
+typedef VkPipelineColorBlendAttachmentState
+    vk_pipeline_color_blend_attachment_state_t;
+typedef VkPipelineColorBlendStateCreateInfo
+    vk_pipeline_color_blend_state_create_info_t;
+typedef VkPipelineDynamicStateCreateInfo
+    vk_pipeline_dynamic_state_create_info_t;
+typedef VkPipelineInputAssemblyStateCreateInfo
+    vk_pipeline_input_assembly_state_create_info_t;
+typedef VkPipelineDepthStencilStateCreateInfo
+    vk_pipeline_depth_stencil_state_create_info_t;
+
+typedef VkIndexType vk_index_type_t;
+
+typedef VkDynamicState vk_dynamic_state_t;
+typedef VkPresentModeKHR vk_present_mode_khr_t;
+
+typedef VkGraphicsPipelineCreateInfo vk_graphics_pipeline_create_info_t;
+
+typedef VkBuffer vk_buffer_t;
+typedef VkBufferCreateInfo vk_buffer_create_info_t;
+typedef VkBufferUsageFlags vk_buffer_usage_flags_t;
+
+typedef VkDeviceMemory vk_device_memory_t;
+typedef VkDeviceSize vk_device_size_t;
+
+typedef VkMemoryRequirements vk_memory_requirements_t;
+typedef VkMemoryPropertyFlags vk_memory_property_flags_t;
+typedef VkMemoryAllocateInfo vk_memory_allocate_info_t;
+
+typedef VkShaderModule vk_shader_module_t;
+typedef VkShaderModuleCreateInfo vk_shader_module_create_info_t;
 
 typedef VkSurfaceFormatKHR vk_surface_format_khr_t;
 typedef VkPipelineStageFlags vk_pipeline_stage_flags_t;
@@ -59,6 +136,24 @@ typedef VkSubmitInfo vk_submit_info_t;
 typedef VkPresentInfoKHR vk_present_info_khr_t;
 typedef VkFence vk_fence_t;
 typedef VkFenceCreateInfo vk_fence_create_info_t;
+
+typedef VkViewport vk_viewport_t;
+typedef VkRect2D vk_rect2d_t;
+
+typedef VkSampler vk_sampler_t;
+
+struct butter_frame {
+  vk_command_buffer_t cmd;
+  vk_framebuffer_t fb;
+  vk_extent2d_t extent;
+  vk_render_pass_t rp;
+  u64 frame_start_ns;
+  u32 image_index;
+};
+
+typedef void (*butter_draw_callback_t)(vk_command_buffer_t cmd,
+                                       const struct butter_frame *frame,
+                                       void *userdata);
 
 typedef struct butter_context {
   vk_instance_t instance;
@@ -85,6 +180,23 @@ typedef struct butter_context {
   vk_command_pool_t cmd_pool;
   vk_command_buffer_t *cmds;
   vk_clear_value_t clear_color;
+
+  thrd_t render_thread;
+  mtx_t render_mutex;
+  cnd_t frame_ready;
+  cnd_t frame_done;
+
+  atomic_b32 render_running;
+  atomic_b32 frame_requested;
+  atomic_b32 frame_completed;
+  atomic_b32 vsync;
+  atomic_f32 target_refresh_rate;
+
+  arena_t *arena;
+  arena_t *render_arena;
+
+  butter_draw_callback_t draw_callback;
+  void *draw_userdata;
 
   u32 pending_width;
   u32 pending_height;

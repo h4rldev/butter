@@ -1,5 +1,4 @@
 #include <stdio.h>
-#include <string.h>
 
 #include <htils/arena.h>
 #include <htils/string.h>
@@ -10,7 +9,7 @@
 
 #include <xcb/xcb_icccm.h>
 
-#include <butter/api.h>
+#include <butter/render.h>
 
 #define enable_validation true
 

@@ -28,13 +28,13 @@ link_flags := '-lhtils -lvulkan -Llib -ldl'
 
 ## Shared flags
 
-shared_flags_debug := '-ggdb -g -Og -fsanitize=address,undefined,leak -fno-sanitize-recover=all -fno-omit-frame-pointer -fno-optimize-sibling-calls -fsanitize-address-use-after-scope -fno-common'
+shared_flags_debug := '-ggdb -g -Og -fsanitize=address,undefined,leak -fno-sanitize-recover=all -fno-omit-frame-pointer -fno-optimize-sibling-calls -fsanitize-address-use-after-scope -fno-common -DBUTTER_DEBUG'
 shared_flags_release := '-O2 -std=gnu11'
 
 ## Link flags
 
-wayland_link_flags := shared_flags_debug + ' -lwayland-client -lxkbcommon -lbutter-wayland-debug -lbread-wayland-debug ' + link_flags
-x11_link_flags := shared_flags_debug + ' -lxkbcommon -lxkbcommon-x11 -lxcb -lxcb-randr -lbutter-x11-debug -lbread-x11-debug ' + link_flags
+wayland_link_flags := shared_flags_debug + ' -lwayland-client -lxkbcommon -lbutter-wayland-debug -lbread-wayland-release ' + link_flags
+x11_link_flags := shared_flags_debug + ' -lxkbcommon -lxkbcommon-x11 -lxcb -lxcb-randr -lbutter-x11-debug -lbread-x11-release ' + link_flags
 
 ## Static link flags
 
@@ -267,8 +267,10 @@ compile-test platform="wayland" force="dont_force" threads=num_cpus():
       local file="$1"
       local current_out_file="$(basename "${file%.c}")-{{ platform }}.o"
 
+      mkdir -p {{ test_out }}/$(basename "${file%.c}")
+
       echo -e "Compiling {{ green }}$file{{ reset }}..."
-      gcc {{ include_flags }} {{ debug_compile_flags }} ${CURRENT_PLATFORM_COMPILE_FLAGS} -c "$file" -o "{{ test_out }}/${current_out_file}"
+      gcc {{ include_flags }} {{ debug_compile_flags }} ${CURRENT_PLATFORM_COMPILE_FLAGS} -c "$file" -o "{{ test_out }}/$(basename ${file%.c})/${current_out_file}"
     }
 
     export -f compile
@@ -312,7 +314,7 @@ link-test platform="wayland" force="dont_force":
         WILL_LINK=true; return
       fi
 
-      for file in {{ test_out }}/*-{{ platform }}.o; do
+      for file in {{ test_out }}/**/*-{{ platform }}.o; do
         if [[ $file -nt {{ bin }}/{{ test_name }}-{{ platform }} ]]; then
           WILL_LINK=true; return
         fi
@@ -323,7 +325,10 @@ link-test platform="wayland" force="dont_force":
       echo -e "Link (test):"
       echo -e "Platform: {{ green }}{{ platform }}{{ reset }}"
 
-      gcc {{ test_out }}/*-{{ platform }}.o ${CURRENT_PLATFORM_LINK_FLAGS} -o {{ bin }}/{{ test_name }}-{{ platform }} -fuse-ld=mold
+      local file="$1"
+      local out_sub=$(basename "${file%.o}")
+
+      gcc $file ${CURRENT_PLATFORM_LINK_FLAGS} -o {{ bin }}/butter-test-$out_sub -fuse-ld=mold
     }
 
     check_flags
@@ -332,8 +337,9 @@ link-test platform="wayland" force="dont_force":
       echo -e "Link: Nothing to do"
       exit 0
     fi
-
-    link
+    for file in {{ test_out }}/**/*-{{ platform }}.o; do
+      link $file
+    done
 
 ## Aliases
 

@@ -3,6 +3,7 @@
 
 #include <butter/internal/present.h>
 #include <butter/internal/types.h>
+#include <butter/log.h>
 #include <butter/types.h>
 
 vk_result_t butter_acquire_next_image(butter_context_t *context,
@@ -12,10 +13,15 @@ vk_result_t butter_acquire_next_image(butter_context_t *context,
   vk_result_t res = vkWaitForFences(context->device, 1,
                                     &context->in_flight_fences[frame_index],
                                     VK_TRUE, 100000000);
-  if (res != VK_SUCCESS)
+  if (res != VK_SUCCESS) {
+    butter_log_error("Could not wait for fence");
     return res;
+  }
 
-  vkResetFences(context->device, 1, &context->in_flight_fences[frame_index]);
+  res = vkResetFences(context->device, 1,
+                      &context->in_flight_fences[frame_index]);
+  if (res != VK_SUCCESS)
+    butter_log_error("Could not reset fence");
 
   return vkAcquireNextImageKHR(context->device, context->swapchain, 100000000,
                                context->image_available[frame_index],
@@ -44,8 +50,10 @@ vk_result_t butter_submit_and_present(butter_context_t *context,
 
   vk_result_t res = vkQueueSubmit(context->queue, 1, &submit_info,
                                   context->in_flight_fences[frame_index]);
-  if (res != VK_SUCCESS)
+  if (res != VK_SUCCESS) {
+    butter_log_error("Could not submit queue");
     return res;
+  }
 
   vk_present_info_khr_t present_info = {
       .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,

@@ -27,6 +27,7 @@
           nixd
           bear
           vulkan-tools
+          shaderc
         ];
 
         nativeBuildInputs = with pkgs; [
@@ -34,9 +35,9 @@
         ];
 
         buildInputs = with pkgs; [
-          htils.packages.${system}.htils
-          bread.packages.${system}.bread-wayland-debug
-          bread.packages.${system}.bread-x11-debug
+          htils.packages.${system}.htils-threadsafe
+          bread.packages.${system}.bread-wayland-release
+          bread.packages.${system}.bread-x11-release
 
           vulkan-headers
           vulkan-validation-layers

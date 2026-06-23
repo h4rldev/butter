@@ -7,6 +7,8 @@
 
 #include <butter/types.h>
 
+void butter_destroy_swapchain_resources(butter_context_t *context);
+
 b32 butter_create_swapchain(arena_t *arena, butter_context_t *context,
                             u32 latency_cap, u32 desired_width,
                             u32 desired_height);

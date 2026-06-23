@@ -3,6 +3,7 @@
 #include <butter/internal/get.h>
 #include <butter/internal/types.h>
 
+#include <butter/log.h>
 #include <butter/types.h>
 
 const cstr *const *
@@ -25,6 +26,8 @@ butter_get_required_instance_extensions(butter_backend_t backend, u32 *count) {
     *count = 2;
     return wayland_exts;
   default:
+    butter_log_fatal(
+        "Incompatile platform, butter only supports xcb and wayland for now.");
     *count = 0;
     return NULL;
   }
@@ -56,8 +59,12 @@ vk_render_pass_t butter_get_default_render_pass(butter_context_t *context) {
 
 vk_framebuffer_t butter_get_framebuffer(butter_context_t *context,
                                         u32 image_index) {
-  if (image_index >= context->image_count)
+  if (image_index >= context->image_count) {
+    butter_log_error("Image index out of bounds, got image index %d, but only "
+                     "%d images exist",
+                     image_index, context->image_count);
     return VK_NULL_HANDLE;
+  }
 
   return context->framebuffers[image_index];
 }
@@ -74,8 +81,12 @@ vk_command_pool_t butter_get_cmd_pool(butter_context_t *context) {
 }
 
 vk_command_buffer_t butter_get_cmd(butter_context_t *context, u32 image_index) {
-  if (image_index >= context->image_count)
+  if (image_index >= context->image_count) {
+    butter_log_error("Image index out of bounds, got image index %d, but only "
+                     "%d images exist",
+                     image_index, context->image_count);
     return VK_NULL_HANDLE;
+  }
 
   return context->cmds[image_index];
 }

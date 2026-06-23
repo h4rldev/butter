@@ -1,17 +1,27 @@
 #include <htils/basictypes.h>
 
 #include <butter/internal/device.h>
+#include <butter/internal/types.h>
+
+#include <butter/log.h>
 
 b32 butter_select_physical_device(arena_t *arena, butter_context_t *context) {
   u32 count = 0;
+  vk_result_t res;
 
-  vkEnumeratePhysicalDevices(context->instance, &count, null);
-  if (count == 0)
+  res = vkEnumeratePhysicalDevices(context->instance, &count, null);
+  if (count == 0 || res != VK_SUCCESS) {
+    butter_log_fatal("Could get physical device count");
     return false;
+  }
 
   vk_physical_device_t *devices =
-      arena_alloc(arena, vk_physical_device_t, count);
-  vkEnumeratePhysicalDevices(context->instance, &count, devices);
+      arena_alloc_zeroed(arena, vk_physical_device_t, count);
+  res = vkEnumeratePhysicalDevices(context->instance, &count, devices);
+  if (res != VK_SUCCESS) {
+    butter_log_fatal("Could not enumerate physical devices");
+    return false;
+  }
 
   for (u32 i = 0; i < count; i++) {
     vk_physical_device_properties_t props;
@@ -20,14 +30,17 @@ b32 butter_select_physical_device(arena_t *arena, butter_context_t *context) {
     u32 qf_count = 0;
     vkGetPhysicalDeviceQueueFamilyProperties(devices[i], &qf_count, null);
     vk_queue_family_properties_t *qf =
-        arena_alloc(arena, vk_queue_family_properties_t, qf_count);
+        arena_alloc_zeroed(arena, vk_queue_family_properties_t, qf_count);
     vkGetPhysicalDeviceQueueFamilyProperties(devices[i], &qf_count, qf);
 
     for (u32 j = 0; j < qf_count; j++) {
       if (qf[j].queueFlags & VK_QUEUE_GRAPHICS_BIT) {
         vk_bool32_t present = VK_FALSE;
-        vkGetPhysicalDeviceSurfaceSupportKHR(devices[i], j, context->surface,
-                                             &present);
+        res = vkGetPhysicalDeviceSurfaceSupportKHR(devices[i], j,
+                                                   context->surface, &present);
+        if (res != VK_SUCCESS)
+          butter_log_error("Could not get surface support");
+
         if (present) {
           context->physical_device = devices[i];
           context->queue_family = j;
@@ -62,8 +75,10 @@ b32 butter_create_device(butter_context_t *context) {
   };
 
   if (vkCreateDevice(context->physical_device, &device_create_info, null,
-                     &context->device) != VK_SUCCESS)
+                     &context->device) != VK_SUCCESS) {
+    butter_log_fatal("Could not create device");
     return false;
+  }
 
   vkGetDeviceQueue(context->device, context->queue_family, 0, &context->queue);
   return true;

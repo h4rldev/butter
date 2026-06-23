@@ -160,7 +160,7 @@ butter_frame_t *butter_begin_frame(arena_t *arena, butter_t *butter) {
   }
 
   if (res == VK_ERROR_OUT_OF_DATE_KHR || res == VK_SUBOPTIMAL_KHR) {
-    butter_log_debug("Swapchain out of date – resizing");
+    butter_log_debug("Swapchain out of date - resizing");
     butter_resize(arena, butter, extent.width, extent.height);
     res = butter_acquire_next_image(butter, &image_index);
     if (res != VK_SUCCESS) {

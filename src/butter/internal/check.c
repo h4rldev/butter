@@ -15,6 +15,9 @@ b32 butter_is_vulkan_available(void) {
     return false;
   }
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wpedantic"
+
   pfn_vkGetInstanceProcAddr vkGetInstanceProcAddr =
       (pfn_vkGetInstanceProcAddr)dlsym(lib, "vkGetInstanceProcAddr");
 
@@ -35,6 +38,8 @@ b32 butter_is_vulkan_available(void) {
         (pfn_vkCreateInstance)dlsym(lib, "vkCreateInstance");
     result = (vkCreateInstance != NULL);
   }
+
+#pragma GCC diagnostic pop
 
   dlclose(lib);
   return result;

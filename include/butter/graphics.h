@@ -60,11 +60,6 @@ vk_sampler_t butter_create_sampler(butter_t *butter,
 
 void butter_destroy_sampler(butter_t *butter, vk_sampler_t sampler);
 
-butter_texture_t butter_create_texture(butter_t *butter, u32 width, u32 height,
-                                       vk_format_t format, const void *data,
-                                       u64 data_size);
-void butter_destroy_texture(butter_t *butter, butter_texture_t *texture);
-
 void butter_submit_draws(butter_t *butter, const butter_draw_cmd_t *cmds,
                          u32 count);
 

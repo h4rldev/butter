@@ -1,5 +1,4 @@
 set shell := ["bash", "-c"]
-set quiet
 
 ## Metadata
 
@@ -382,5 +381,5 @@ build-test platform="wayland" target="debug" force="false" threads=num_cpus():
 release platform="wayland" force="false" static="dynamic" threads=num_cpus():
     just build-butter {{ platform }} release {{ force }} {{ static }} {{ threads }}
 
-debug platform="wayland" force="false" threads=num_cpus():
-    just build-butter {{ platform }} debug {{ force }} static {{ threads }}
+debug platform="wayland" force="false" static="dynamic" threads=num_cpus():
+    just build-butter {{ platform }} debug {{ force }} {{ static }} {{ threads }}

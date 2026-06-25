@@ -176,11 +176,13 @@ void draw_triangle(vk_command_buffer_t cmd, const butter_frame_t *frame,
 }
 
 int main(void) {
-  arena_t *arena = arena_new(GiB(4), MiB(256));
+  u32 current_frame_arena = 0;
+
+  arena_t *arena = arena_new(GiB(4), MiB(16));
 
   arena_t *per_frame_arenas[2] = {
-      arena_new(GiB(1), MiB(16)),
-      arena_new(GiB(1), MiB(16)),
+      arena_new(GiB(4), MiB(16)),
+      arena_new(GiB(4), MiB(16)),
   };
 
   srand((unsigned)time(NULL));
@@ -206,14 +208,14 @@ int main(void) {
   butter_t *butter = butter_init(arena, &surface_info, "butter", false,
                                  window.width, window.height);
   if (!butter) {
-    fprintf(stderr, "Could not create context\n");
+    butter_log_error("Could not create context");
     return 1;
   }
 
   butter_set_clear_color(butter, 0.0f, 0.0f, 0.0f, 1.0f);
   triangle_resources_t *resources = create_triangle_resources(butter);
   if (!resources) {
-    fprintf(stderr, "Could not create triangle resources\n");
+    butter_log_error("Could not create triangle resources");
     return 1;
   }
 
@@ -228,9 +230,7 @@ int main(void) {
   butter_set_vsync(butter, true);
   butter_set_target_refresh_rate(butter, 60.0f);
 
-  u32 current_frame_arena = 0;
   butter_start_render_thread(butter, per_frame_arenas[current_frame_arena]);
-
   while (bread_window_should_close(&window) == false) {
     bread_window_poll(&window);
 
@@ -239,7 +239,10 @@ int main(void) {
 
     butter_request_frame(butter);
     butter_wait_for_frame(butter);
+
+    // butter_log_debug("Clearing per frame arena: %d", current_frame_arena);
     arena_clear(per_frame_arenas[current_frame_arena]);
+
     current_frame_arena = (current_frame_arena + 1) % 2;
   }
 

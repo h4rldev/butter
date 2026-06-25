@@ -126,12 +126,7 @@ typedef struct {
   vk_pipeline_t pipeline;
 } butter_pipeline_t;
 
-typedef struct {
-  vk_buffer_t handle;
-  vk_device_memory_t memory;
-  u64 size;
-  void *mapped;
-} butter_buffer_t;
+typedef struct butter_buffer butter_buffer_t;
 
 typedef struct {
   vk_descriptor_set_t set;
@@ -150,14 +145,7 @@ typedef struct {
   vk_compare_op_t compare_op;
 } butter_sampler_desc_t;
 
-typedef struct {
-  vk_image_t image;
-  vk_image_view_t view;
-  vk_device_memory_t memory;
-  u32 width;
-  u32 height;
-  vk_format_t format;
-} butter_texture_t;
+typedef struct butter_texture butter_texture_t;
 
 typedef struct {
   butter_pipeline_t pipeline;

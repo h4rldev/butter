@@ -86,6 +86,7 @@ typedef VkShaderStageFlagBits vk_shader_stage_flags_t;
 
 typedef VkPipeline vk_pipeline_t;
 typedef VkPipelineCache vk_pipeline_cache_t;
+typedef VkPipelineCacheCreateInfo vk_pipeline_cache_create_info_t;
 typedef VkPipelineLayout vk_pipeline_layout_t;
 typedef VkPipelineLayoutCreateInfo vk_pipeline_layout_create_info_t;
 typedef VkPipelineShaderStageCreateInfo vk_pipeline_shader_stage_create_info_t;
@@ -167,6 +168,33 @@ struct butter_frame {
   u32 image_index;
 };
 
+struct butter_buffer {
+  vk_buffer_t handle;
+  vk_device_memory_t memory;
+  u64 size;
+  void *mapped;
+};
+
+struct butter_texture {
+  vk_image_t image;
+  vk_image_view_t view;
+  vk_device_memory_t memory;
+  u32 width;
+  u32 height;
+  vk_format_t format;
+
+  b32 is_upload;
+  b32 upload_ready;
+  b32 upload_failed;
+};
+
+typedef struct {
+  struct butter_texture texture;
+  struct butter_buffer staging_buffer;
+  b32 ready;
+  b32 failed;
+} butter_upload_t;
+
 typedef void (*butter_draw_callback_t)(vk_command_buffer_t cmd,
                                        const struct butter_frame *frame,
                                        void *userdata);
@@ -176,6 +204,7 @@ typedef struct butter_context {
   vk_physical_device_t physical_device;
   vk_device_t device;
   vk_queue_t queue;
+  vk_pipeline_cache_t pipeline_cache;
   u32 queue_family;
 
   vk_surface_khr_t surface;
@@ -217,6 +246,19 @@ typedef struct butter_context {
   u32 pending_width;
   u32 pending_height;
   b32 resize_pending;
+
+  thrd_t upload_thread;
+  mtx_t upload_mutex;
+  cnd_t upload_ready;
+  b32 upload_thread_running;
+
+  butter_upload_t *upload_queue;
+  u32 upload_queue_cap;
+  u32 upload_queue_head;
+  u32 upload_queue_tail;
+
+  vk_command_pool_t upload_pool_async;
+  vk_command_pool_t upload_pool_sync;
 } butter_context_t;
 
 #endif // !BUTTER_INTERNAL_TYPES_H

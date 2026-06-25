@@ -12,6 +12,7 @@
 
 #include <butter/log.h>
 
+#include <vulkan/vulkan_core.h>
 #include <wayland-client.h>
 #include <xcb/xcb.h>
 
@@ -106,6 +107,8 @@ vk_instance_t butter_create_instance(arena_t *arena, const cstr *app_name,
 butter_context_t *butter_create(arena_t *arena, vk_instance_t instance,
                                 const butter_surface_info_t *surface_info,
                                 u32 latency_cap, u32 width, u32 height) {
+  vk_result_t res;
+
   butter_context_t *context = arena_alloc_zeroed(arena, butter_context_t, 1);
   if (!context) {
     butter_log_fatal("Could not allocate butter context");
@@ -128,12 +131,34 @@ butter_context_t *butter_create(arena_t *arena, vk_instance_t instance,
   if (!butter_create_swapchain(arena, context, latency_cap, width, height))
     goto fail;
 
+  vk_command_pool_create_info_t pool_info = {0};
+  pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+  pool_info.queueFamilyIndex = context->queue_family;
+  pool_info.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
+
   vk_semaphore_create_info_t semaphore_info = {0};
   semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
 
   vk_fence_create_info_t fence_info = {0};
   fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
   fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+
+  vk_pipeline_cache_create_info_t pipeline_cache_info = {0};
+  pipeline_cache_info.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
+
+  if ((res = vkCreatePipelineCache(context->device, &pipeline_cache_info, NULL,
+                                   &context->pipeline_cache)) != VK_SUCCESS) {
+    butter_log_warning(
+        "Failed to create pipeline cache – pipelines will not be cached: %d",
+        res);
+    context->pipeline_cache = VK_NULL_HANDLE;
+  }
+
+  if ((res = vkCreateCommandPool(context->device, &pool_info, null,
+                                 &context->upload_pool_sync)) != VK_SUCCESS) {
+    butter_log_error("Could not create synchronous upload pool: %d", res);
+    context->upload_pool_sync = VK_NULL_HANDLE;
+  }
 
   context->rendering_finished =
       arena_alloc_zeroed(arena, vk_semaphore_t, context->image_count);
@@ -143,19 +168,16 @@ butter_context_t *butter_create(arena_t *arena, vk_instance_t instance,
       arena_alloc_zeroed(arena, vk_fence_t, context->image_count);
 
   for (u32 i = 0; i < context->image_count; i++) {
-    vk_result_t res = vkCreateSemaphore(context->device, &semaphore_info, null,
-                                        &context->rendering_finished[i]);
-    if (res != VK_SUCCESS)
+    if ((res = vkCreateSemaphore(context->device, &semaphore_info, null,
+                                 &context->rendering_finished[i])) !=
+        VK_SUCCESS)
       butter_log_error("Could not create rendering finished semaphore: %d",
                        res);
-
-    res = vkCreateSemaphore(context->device, &semaphore_info, null,
-                            &context->image_available[i]);
-    if (res != VK_SUCCESS)
+    if ((res = vkCreateSemaphore(context->device, &semaphore_info, null,
+                                 &context->image_available[i])) != VK_SUCCESS)
       butter_log_error("Could not create image available semaphore: %d", res);
-    res = vkCreateFence(context->device, &fence_info, null,
-                        &context->in_flight_fences[i]);
-    if (res != VK_SUCCESS)
+    if ((res = vkCreateFence(context->device, &fence_info, null,
+                             &context->in_flight_fences[i])) != VK_SUCCESS)
       butter_log_error("Could not create in flight fence: %d", res);
   }
 
@@ -211,6 +233,18 @@ void butter_destroy(butter_context_t *context) {
   mtx_destroy(&context->render_mutex);
   cnd_destroy(&context->frame_ready);
   cnd_destroy(&context->frame_done);
+
+  if (context->pipeline_cache)
+    vkDestroyPipelineCache(context->device, context->pipeline_cache, null);
+  context->pipeline_cache = VK_NULL_HANDLE;
+
+  if (context->upload_pool_sync)
+    vkDestroyCommandPool(context->device, context->upload_pool_sync, null);
+  context->upload_pool_sync = VK_NULL_HANDLE;
+
+  if (context->upload_pool_async)
+    vkDestroyCommandPool(context->device, context->upload_pool_async, null);
+  context->upload_pool_async = VK_NULL_HANDLE;
 
   if (context->swapchain)
     vkDestroySwapchainKHR(context->device, context->swapchain, null);

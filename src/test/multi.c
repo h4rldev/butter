@@ -226,9 +226,10 @@ int main(void) {
   butter_set_draw_callback(butter, draw_triangle, resources);
 
   bread_window_set_event_callback(&window, bread_event_callback, event_data);
+  bread_window_set_min_size(&window, 800, 600);
 
   butter_set_vsync(butter, true);
-  butter_set_target_refresh_rate(butter, 60.0f);
+  butter_set_target_refresh_rate(butter, 165.0f);
 
   butter_start_render_thread(butter, per_frame_arenas[current_frame_arena]);
   while (bread_window_should_close(&window) == false) {
@@ -242,7 +243,6 @@ int main(void) {
 
     // butter_log_debug("Clearing per frame arena: %d", current_frame_arena);
     arena_clear(per_frame_arenas[current_frame_arena]);
-
     current_frame_arena = (current_frame_arena + 1) % 2;
   }
 

@@ -108,13 +108,13 @@ butter_t *butter_init(arena_t *arena, butter_surface_info_t *surface_info,
   }
 
 #ifdef BUTTER_X11
-  butter_log_debug("Flushing X11 events");
+  /*butter_log_debug("Flushing X11 events");
   if (surface_info->backend == BUTTER_BACKEND_XCB) {
     xcb_connection_t *conn = (xcb_connection_t *)surface_info->display;
     xcb_generic_event_t *ev;
     while ((ev = xcb_poll_for_event(conn)) != null)
       free(ev);
-  }
+  }*/
 #endif
 
   return butter;
@@ -140,13 +140,6 @@ void butter_set_clear_color(butter_t *butter, f32 r, f32 g, f32 b, f32 a) {
 }
 
 butter_frame_t *butter_begin_frame(arena_t *arena, butter_t *butter) {
-  // butter_log_debug("Beginning frame");
-  if (butter->resize_pending) {
-    butter_log_debug("Resizing pending");
-    butter_resize(arena, butter, butter->pending_width, butter->pending_height);
-    butter->resize_pending = false;
-  }
-
   vk_extent2d_t extent = butter->extent;
   if (extent.width == 0 || extent.height == 0) {
     butter_log_error("Extent is zero");
@@ -155,24 +148,34 @@ butter_frame_t *butter_begin_frame(arena_t *arena, butter_t *butter) {
 
   u32 image_index = 0;
   vk_result_t res = butter_acquire_next_image(butter, &image_index);
-  if (res == VK_TIMEOUT) {
-    butter_log_debug("Acquire timed out - skipping frame");
-    return NULL;
-  }
-
-  if (res == VK_ERROR_OUT_OF_DATE_KHR || res == VK_SUBOPTIMAL_KHR) {
-    butter_log_debug("Swapchain out of date - resizing");
-    butter_resize(arena, butter, extent.width, extent.height);
-    res = butter_acquire_next_image(butter, &image_index);
-    if (res != VK_SUCCESS) {
-      butter_log_error("Could not acquire next image after resize");
+  if (res != VK_SUCCESS) {
+    if (res == VK_TIMEOUT) {
+      butter_log_debug("Acquire timed out - skipping frame");
+      butter->resize_pending = true;
+      butter->pending_width = butter->extent.width;
+      butter->pending_height = butter->extent.height;
       return NULL;
     }
-  }
 
-  if (res != VK_SUCCESS) {
-    butter_log_error("Could not acquire next image: %d", res);
-    return NULL;
+    if (res == VK_ERROR_OUT_OF_DATE_KHR || res == VK_SUBOPTIMAL_KHR) {
+      butter_log_debug("Swapchain out of date - resizing");
+      butter_resize(arena, butter, extent.width, extent.height);
+      res = butter_acquire_next_image(butter, &image_index);
+      if (res != VK_SUCCESS) {
+        if (res == VK_TIMEOUT)
+          butter_log_error("Acquire timed out after resize - skipping frame");
+        else
+          butter_log_error("Could not acquire next image after resize: %d",
+                           res);
+        return NULL;
+      }
+    } else {
+      butter_log_debug("Acquire error %d - triggering resize", res);
+      butter->resize_pending = true;
+      butter->pending_width = butter->extent.width;
+      butter->pending_height = butter->extent.height;
+      return NULL;
+    }
   }
 
   u32 frame_index = butter->frame_index;
@@ -269,8 +272,9 @@ static int render_thread_loop(void *arg) {
   while (atomic_load(&butter->render_running)) {
     mtx_lock(&butter->render_mutex);
     while (!atomic_load(&butter->frame_requested) &&
-           atomic_load(&butter->render_running))
+           atomic_load(&butter->render_running)) {
       cnd_wait(&butter->frame_ready, &butter->render_mutex);
+    }
 
     if (!atomic_load(&butter->render_running)) {
       mtx_unlock(&butter->render_mutex);
@@ -282,14 +286,9 @@ static int render_thread_loop(void *arg) {
     if (butter->resize_pending) {
       u32 width = butter->pending_width;
       u32 height = butter->pending_height;
-
       butter->resize_pending = false;
-      mtx_unlock(&butter->render_mutex);
-      butter_resize(butter->render_arena, butter, width, height);
-      mtx_lock(&butter->render_mutex);
+      butter_resize(butter->arena, butter, width, height);
     }
-
-    mtx_unlock(&butter->render_mutex);
 
     butter_frame_t *frame = butter_begin_frame(butter->render_arena, butter);
     if (frame) {
@@ -298,22 +297,18 @@ static int render_thread_loop(void *arg) {
 
       vk_result_t res = butter_end_frame(butter->render_arena, butter, frame);
       if (res == VK_ERROR_OUT_OF_DATE_KHR || res == VK_SUBOPTIMAL_KHR) {
-        mtx_lock(&butter->render_mutex);
-        butter->pending_width = frame->extent.width;
-        butter->pending_height = frame->extent.height;
-        mtx_unlock(&butter->render_mutex);
+        butter->pending_width = butter->extent.width;
+        butter->pending_height = butter->extent.height;
+        butter->resize_pending = true;
       }
     }
 
-    mtx_lock(&butter->render_mutex);
     atomic_store(&butter->frame_completed, true);
     cnd_signal(&butter->frame_done);
     mtx_unlock(&butter->render_mutex);
   }
-
   return 0;
 }
-
 void butter_set_draw_callback(butter_t *butter, butter_draw_callback_t cb,
                               void *userdata) {
   if (!butter)

@@ -32,10 +32,10 @@ shared_flags_release := '-O3 -std=gnu11'
 
 ## Link flags
 
-release_wayland_link_flags := shared_flags_debug + ' -lwayland-client -lxkbcommon -lbutter-wayland-release -lbread-wayland-release ' + link_flags
-release_x11_link_flags := shared_flags_debug + ' -lxkbcommon -lxkbcommon-x11 -lxcb -lxcb-randr -lbutter-x11-release -lbread-x11-release ' + link_flags
+release_wayland_link_flags := shared_flags_release + ' -lwayland-client -lxkbcommon -lbutter-wayland-release -lbread-wayland-release ' + link_flags
+release_x11_link_flags := shared_flags_release + ' -lxkbcommon -lxkbcommon-x11 -lxcb -lxcb-icccm -lxcb-randr -lbutter-x11-release -lbread-x11-release ' + link_flags
 debug_wayland_link_flags := shared_flags_debug + ' -lwayland-client -lxkbcommon -lbutter-wayland-debug -lbread-wayland-release ' + link_flags
-debug_x11_link_flags := shared_flags_debug + ' -lxkbcommon -lxkbcommon-x11 -lxcb -lxcb-randr -lbutter-x11-debug -lbread-x11-release ' + link_flags
+debug_x11_link_flags := shared_flags_debug + ' -lxkbcommon -lxkbcommon-x11 -lxcb -lxcb-icccm -lxcb-randr -lbutter-x11-debug -lbread-x11-release ' + link_flags
 
 ## Static link flags
 
@@ -303,6 +303,7 @@ compile-test platform="wayland" target="debug" force="dont_force" threads=num_cp
 link-test platform="wayland" target="debug" force="dont_force":
     #!/usr/bin/env bash
     shopt -s globstar
+    set -x
 
     [[ -d {{ test_out }} ]] || just compile-test {{ platform }} {{ force }}
     [[ -d {{ bin }} ]] || mkdir -p {{ bin }}
@@ -348,6 +349,7 @@ link-test platform="wayland" target="debug" force="dont_force":
 
     link() {
       echo -e "Link (test):"
+      echo -e "Target: {{ green }}{{ target }}{{ reset }}"
       echo -e "Platform: {{ green }}{{ platform }}{{ reset }}"
 
       local file="$1"

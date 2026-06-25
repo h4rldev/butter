@@ -14,7 +14,7 @@ vk_result_t butter_acquire_next_image(butter_context_t *context,
   if ((res = vkWaitForFences(context->device, 1,
                              &context->in_flight_fences[frame_index], VK_TRUE,
                              100000000)) != VK_SUCCESS) {
-    butter_log_error("Could not wait for fence");
+    butter_log_error("Could not wait for fence: %d", res);
     return res;
   }
 

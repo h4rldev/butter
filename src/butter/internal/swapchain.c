@@ -11,15 +11,21 @@
 void butter_destroy_swapchain_resources(butter_context_t *context) {
   if (context->framebuffers) {
     for (u32 i = 0; i < context->image_count; i++)
-      if (context->framebuffers[i])
+      if (context->framebuffers[i] != VK_NULL_HANDLE) {
         vkDestroyFramebuffer(context->device, context->framebuffers[i], null);
+        context->framebuffers[i] = VK_NULL_HANDLE;
+      }
     context->framebuffers = null;
   }
 
   if (context->image_views) {
     for (u32 i = 0; i < context->image_count; i++)
-      if (context->image_views[i])
+      if (context->image_views[i] != VK_NULL_HANDLE) {
+        butter_log_debug("Destroying image view at index %d", i);
         vkDestroyImageView(context->device, context->image_views[i], null);
+        context->image_views[i] = VK_NULL_HANDLE;
+      }
+    context->image_count = 0;
     context->image_views = null;
   }
 
@@ -40,71 +46,58 @@ b32 butter_create_swapchain(arena_t *arena, butter_context_t *context,
   if (res != VK_SUCCESS)
     butter_log_error("Could not get surface capabilities");
 
-  u32 mode_count;
-  vkGetPhysicalDeviceSurfacePresentModesKHR(
-      context->physical_device, context->surface, &mode_count, NULL);
-  vk_present_mode_khr_t *modes =
-      arena_alloc(arena, vk_present_mode_khr_t, mode_count);
-  vkGetPhysicalDeviceSurfacePresentModesKHR(
-      context->physical_device, context->surface, &mode_count, modes);
-
-  vk_present_mode_khr_t chosen_mode = VK_PRESENT_MODE_FIFO_KHR; // fallback
-
+  vk_present_mode_khr_t chosen_mode = context->available_modes[0]; // fallback
   if (context->vsync) {
-    for (u32 i = 0; i < mode_count; i++)
-      if (modes[i] == VK_PRESENT_MODE_FIFO_KHR) {
+    for (u32 i = 0; i < context->available_mode_count; i++)
+      if (context->available_modes[i] == VK_PRESENT_MODE_FIFO_KHR) {
         chosen_mode = VK_PRESENT_MODE_FIFO_KHR;
         break;
       }
-
-    if (chosen_mode != VK_PRESENT_MODE_FIFO_KHR && mode_count > 0)
-      chosen_mode = modes[0];
   } else {
-    for (u32 i = 0; i < mode_count; i++)
-      if (modes[i] == VK_PRESENT_MODE_MAILBOX_KHR) {
+    for (u32 i = 0; i < context->available_mode_count; i++)
+      if (context->available_modes[i] == VK_PRESENT_MODE_MAILBOX_KHR) {
         chosen_mode = VK_PRESENT_MODE_MAILBOX_KHR;
         break;
       }
 
     if (chosen_mode != VK_PRESENT_MODE_MAILBOX_KHR)
-      for (u32 i = 0; i < mode_count; i++)
-        if (modes[i] == VK_PRESENT_MODE_IMMEDIATE_KHR) {
+      for (u32 i = 0; i < context->available_mode_count; i++)
+        if (context->available_modes[i] == VK_PRESENT_MODE_IMMEDIATE_KHR) {
           chosen_mode = VK_PRESENT_MODE_IMMEDIATE_KHR;
           break;
         }
-
-    if (chosen_mode != VK_PRESENT_MODE_MAILBOX_KHR &&
-        chosen_mode != VK_PRESENT_MODE_IMMEDIATE_KHR && mode_count > 0)
-      chosen_mode = modes[0];
   }
 
-  u32 format_count = 0;
-  res = vkGetPhysicalDeviceSurfaceFormatsKHR(
-      context->physical_device, context->surface, &format_count, null);
-  if (res != VK_SUCCESS)
-    butter_log_error("Could not get surface format count");
+  if (!context->format) {
+    u32 format_count = 0;
+    res = vkGetPhysicalDeviceSurfaceFormatsKHR(
+        context->physical_device, context->surface, &format_count, null);
+    if (res != VK_SUCCESS)
+      butter_log_error("Could not get surface format count");
 
-  vk_surface_format_khr_t *formats =
-      arena_alloc_zeroed(arena, vk_surface_format_khr_t, format_count);
-  vkGetPhysicalDeviceSurfaceFormatsKHR(
-      context->physical_device, context->surface, &format_count, formats);
-  if (res != VK_SUCCESS)
-    butter_log_error("Could not get surface formats");
+    vk_surface_format_khr_t *formats =
+        arena_alloc_zeroed(arena, vk_surface_format_khr_t, format_count);
+    vkGetPhysicalDeviceSurfaceFormatsKHR(
+        context->physical_device, context->surface, &format_count, formats);
+    if (res != VK_SUCCESS)
+      butter_log_error("Could not get surface formats");
 
-  context->format = formats[0].format;
-  for (u32 i = 0; i < format_count; i++)
-    if (formats[i].format == VK_FORMAT_B8G8R8A8_SRGB &&
-        formats[i].colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
-      context->format = formats[i].format;
-      break;
-    }
+    context->format = formats[0].format;
+    for (u32 i = 0; i < format_count; i++)
+      if (formats[i].format == VK_FORMAT_B8G8R8A8_SRGB &&
+          formats[i].colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+        context->format = formats[i].format;
+        break;
+      }
+  }
 
   if (desired_width > 0 && desired_height > 0) {
     context->extent.width = desired_width;
     context->extent.height = desired_height;
   } else {
     context->extent = caps.currentExtent;
-    if (context->extent.width == UINT32_MAX) {
+    if (context->extent.width == UINT32_MAX ||
+        context->extent.height == UINT32_MAX) {
       context->extent.width = 800;
       context->extent.height = 600;
     }
@@ -118,9 +111,9 @@ b32 butter_create_swapchain(arena_t *arena, butter_context_t *context,
       MAX(context->extent.height, caps.minImageExtent.height);
 
   if (context->extent.width == 0)
-    context->extent.width = 1;
+    context->extent.width = 800;
   if (context->extent.height == 0)
-    context->extent.height = 1;
+    context->extent.height = 600;
 
   u32 image_count = caps.minImageCount + 1;
   if (latency_cap > 0 && latency_cap != UINT32_MAX) {
@@ -131,10 +124,11 @@ b32 butter_create_swapchain(arena_t *arena, butter_context_t *context,
   if (caps.maxImageCount > 0 && image_count > caps.maxImageCount)
     image_count = caps.maxImageCount;
 
+  context->image_count = image_count;
   vk_swapchain_create_info_khr_t swapchain_create_info = {0};
   swapchain_create_info.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
   swapchain_create_info.surface = context->surface;
-  swapchain_create_info.minImageCount = image_count;
+  swapchain_create_info.minImageCount = context->image_count;
   swapchain_create_info.imageFormat = context->format;
   swapchain_create_info.imageColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
   swapchain_create_info.imageExtent = context->extent;
@@ -161,29 +155,34 @@ b32 butter_create_swapchain(arena_t *arena, butter_context_t *context,
                                      &image_count, null)) != VK_SUCCESS)
     butter_log_error("Could not get swapchain images count");
 
-  context->image_count = image_count;
   context->images = arena_alloc_zeroed(arena, vk_image_t, image_count);
   if ((res = vkGetSwapchainImagesKHR(context->device, context->swapchain,
                                      &image_count, context->images)) !=
       VK_SUCCESS)
     butter_log_error("Could not get swapchain images");
 
-  context->image_views =
-      arena_alloc_zeroed(arena, vk_image_view_t, image_count);
+  if (!context->image_views)
+    context->image_views =
+        arena_alloc_zeroed(arena, vk_image_view_t, context->image_count);
 
-  for (u32 i = 0; i < image_count; i++) {
-    vk_image_view_create_info_t image_view_create_info = {0};
-    image_view_create_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+  vk_image_view_create_info_t image_view_create_info = {0};
+  image_view_create_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+  image_view_create_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+  image_view_create_info.format = context->format;
+  image_view_create_info.subresourceRange.aspectMask =
+      VK_IMAGE_ASPECT_COLOR_BIT;
+  image_view_create_info.subresourceRange.levelCount = 1;
+  image_view_create_info.subresourceRange.layerCount = 1;
+
+  for (u32 i = 0; i < context->image_count; i++) {
     image_view_create_info.image = context->images[i];
-    image_view_create_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    image_view_create_info.format = context->format;
-    image_view_create_info.subresourceRange.aspectMask =
-        VK_IMAGE_ASPECT_COLOR_BIT;
-    image_view_create_info.subresourceRange.levelCount = 1;
-    image_view_create_info.subresourceRange.layerCount = 1;
 
+    butter_log_debug("Creating image view at index %d", i);
     if ((res = vkCreateImageView(context->device, &image_view_create_info, null,
                                  &context->image_views[i])) != VK_SUCCESS) {
+      context->image_count = 0;
+      context->images = NULL;
+      context->framebuffers = NULL;
       butter_log_error("Could not create image view at index %d: %d", i, res);
       return false;
     }
@@ -219,9 +218,10 @@ b32 butter_create_swapchain(arena_t *arena, butter_context_t *context,
     return false;
   }
 
-  context->framebuffers =
-      arena_alloc_zeroed(arena, vk_framebuffer_t, image_count);
-  for (u32 i = 0; i < image_count; i++) {
+  if (!context->framebuffers)
+    context->framebuffers =
+        arena_alloc_zeroed(arena, vk_framebuffer_t, context->image_count);
+  for (u32 i = 0; i < context->image_count; i++) {
     vk_framebuffer_create_info_t framebuffer_create_info = {0};
     framebuffer_create_info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
     framebuffer_create_info.renderPass = context->render_pass;

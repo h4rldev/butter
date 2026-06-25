@@ -226,6 +226,9 @@ typedef struct butter_context {
   vk_command_buffer_t *cmds;
   vk_clear_value_t clear_color;
 
+  vk_present_mode_khr_t *available_modes;
+  u32 available_mode_count;
+
   thrd_t render_thread;
   mtx_t render_mutex;
   cnd_t frame_ready;

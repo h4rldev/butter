@@ -128,6 +128,23 @@ butter_context_t *butter_create(arena_t *arena, vk_instance_t instance,
     goto fail;
   if (!butter_create_device(context))
     goto fail;
+
+  u32 mode_count = 0;
+  vkGetPhysicalDeviceSurfacePresentModesKHR(
+      context->physical_device, context->surface, &mode_count, NULL);
+
+  butter_log_debug("Available present modes count: %d", mode_count);
+  vk_present_mode_khr_t *available_modes =
+      arena_alloc_zeroed(context->arena, vk_present_mode_khr_t, mode_count);
+  if ((res = vkGetPhysicalDeviceSurfacePresentModesKHR(
+           context->physical_device, context->surface, &mode_count,
+           available_modes)) != VK_SUCCESS) {
+    butter_log_error("Could not get surface present modes: %d", res);
+  }
+
+  context->available_mode_count = mode_count;
+  context->available_modes = available_modes;
+
   if (!butter_create_swapchain(arena, context, latency_cap, width, height))
     goto fail;
 

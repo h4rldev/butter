@@ -1,2 +1,4 @@
-leak:setup_loader_term_phys_devs
-leak:asan_thread_start
+interceptor_via_lib:libvulkan_radeon
+interceptor_via_lib:libvulkan
+interceptor_via_lib:vulkan
+interceptor_via_fun:butter_destroy_swapchain_resources

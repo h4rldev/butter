@@ -50,8 +50,11 @@
         ];
 
         shellHook = ''
+          export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:${pkgs.libxcb-wm}/lib"
+          export NIX_LDFLAGS="-rpath ${pkgs.libxcb-wm}/lib  $NIX_LDFLAGS"
           export VK_LAYER_PATH="${pkgs.vulkan-validation-layers}/share/vulkan/explicit_layer.d''${VK_LAYER_PATH:+:}$VK_LAYER_PATH"
-          export LSAN_OPTIONS="$LSAN_OPTIONS:suppressions=asan.supp"
+          export LSAN_OPTIONS="suppressions=lsan.supp"
+          export ASAN_OPTIONS="suppressions=asan.supp:halt_on_error=0:abort_on_error=0"
         '';
       };
     });

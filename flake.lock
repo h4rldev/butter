@@ -7,11 +7,11 @@
         "nixpkgs": "nixpkgs_2"
       },
       "locked": {
-        "lastModified": 1782387696,
-        "narHash": "sha256-uU/Fd0dBCnFvGV39Gc3SMq77xo8d7AvzJ/hgqxvVJBs=",
+        "lastModified": 1782411141,
+        "narHash": "sha256-WRGhw7Sa6fDZlGT+JA0ES6ACda5NUS77L8cl3MEjzkU=",
         "ref": "refs/heads/main",
-        "rev": "9f3b1e7b0f703e297fe72089f3c3dee297f0353e",
-        "revCount": 20,
+        "rev": "a7762846c9f4af70370246428e1278d472ce4b1d",
+        "revCount": 21,
         "type": "git",
         "url": "https://codeberg.org/h4rl/bread"
       },

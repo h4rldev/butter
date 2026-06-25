@@ -159,7 +159,7 @@ butter_frame_t *butter_begin_frame(arena_t *arena, butter_t *butter) {
 
     if (res == VK_ERROR_OUT_OF_DATE_KHR || res == VK_SUBOPTIMAL_KHR) {
       butter_log_debug("Swapchain out of date - resizing");
-      butter_resize(arena, butter, extent.width, extent.height);
+      butter_resize(butter, extent.width, extent.height);
       res = butter_acquire_next_image(butter, &image_index);
       if (res != VK_SUCCESS) {
         if (res == VK_TIMEOUT)
@@ -230,7 +230,7 @@ vk_result_t butter_end_frame(arena_t *arena, butter_t *butter,
   return butter_submit_and_present(butter, frame->cmd, frame->image_index);
 }
 
-void butter_resize(arena_t *arena, butter_t *butter, u32 width, u32 height) {
+void butter_resize(butter_t *butter, u32 width, u32 height) {
   butter_log_debug("Resizing butter surface window");
   vk_command_pool_create_info_t pool_info = {0};
   pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
@@ -244,7 +244,7 @@ void butter_resize(arena_t *arena, butter_t *butter, u32 width, u32 height) {
   }
 
   vkDestroyCommandPool(butter->device, butter->cmd_pool, null);
-  if ((res = butter_update_surface(arena, butter, BUTTER_LATENCY_CAP, width,
+  if ((res = butter_update_surface(butter, BUTTER_LATENCY_CAP, width,
                                    height)) != VK_SUCCESS)
     butter_log_error("Could not update surface: %d", res);
 
@@ -258,8 +258,9 @@ void butter_resize(arena_t *arena, butter_t *butter, u32 width, u32 height) {
   alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
   alloc_info.commandBufferCount = butter->image_count;
 
-  butter->cmds =
-      arena_alloc_zeroed(arena, vk_command_buffer_t, butter->image_count);
+  if (!butter->cmds)
+    butter->cmds = arena_alloc_zeroed(butter->arena, vk_command_buffer_t,
+                                      butter->image_count);
 
   if ((res = vkAllocateCommandBuffers(butter->device, &alloc_info,
                                       butter->cmds)) != VK_SUCCESS)
@@ -287,7 +288,7 @@ static int render_thread_loop(void *arg) {
       u32 width = butter->pending_width;
       u32 height = butter->pending_height;
       butter->resize_pending = false;
-      butter_resize(butter->arena, butter, width, height);
+      butter_resize(butter, width, height);
     }
 
     butter_frame_t *frame = butter_begin_frame(butter->render_arena, butter);

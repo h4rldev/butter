@@ -145,7 +145,7 @@ butter_context_t *butter_create(arena_t *arena, vk_instance_t instance,
   context->available_mode_count = mode_count;
   context->available_modes = available_modes;
 
-  if (!butter_create_swapchain(arena, context, latency_cap, width, height))
+  if (!butter_create_swapchain(context, latency_cap, width, height))
     goto fail;
 
   vk_command_pool_create_info_t pool_info = {0};

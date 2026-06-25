@@ -73,8 +73,7 @@ int main(void) {
 
     vk_result_t res = butter_end_frame(arena, butter, frame);
     if (res == VK_ERROR_OUT_OF_DATE_KHR || res == VK_SUBOPTIMAL_KHR) {
-      butter_resize(arena, butter, butter->pending_width,
-                    butter->pending_height);
+      butter_resize(butter, butter->pending_width, butter->pending_height);
       butter->resize_pending = false;
     }
   }

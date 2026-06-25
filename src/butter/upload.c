@@ -405,7 +405,8 @@ void butter_init_upload(butter_t *butter, u32 queue_cap) {
     return;
   }
 
-  butter->upload_queue = arena_alloc(butter->arena, butter_upload_t, queue_cap);
+  butter->upload_queue =
+      arena_alloc_zeroed(butter->arena, butter_upload_t, queue_cap);
   butter->upload_queue_cap = queue_cap;
   butter->upload_queue_head = 0;
   butter->upload_queue_tail = 0;

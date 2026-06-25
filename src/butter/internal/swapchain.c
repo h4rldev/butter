@@ -21,7 +21,8 @@ void butter_destroy_swapchain_resources(butter_context_t *context) {
   if (context->image_views) {
     for (u32 i = 0; i < context->image_count; i++)
       if (context->image_views[i] != VK_NULL_HANDLE) {
-        butter_log_debug("Destroying image view at index %d", i);
+        butter_log_debug("Destroying image view %p at index %d",
+                         context->image_views, i);
         vkDestroyImageView(context->device, context->image_views[i], null);
         context->image_views[i] = VK_NULL_HANDLE;
       }
@@ -35,9 +36,8 @@ void butter_destroy_swapchain_resources(butter_context_t *context) {
   }
 }
 
-b32 butter_create_swapchain(arena_t *arena, butter_context_t *context,
-                            u32 latency_cap, u32 desired_width,
-                            u32 desired_height) {
+b32 butter_create_swapchain(butter_context_t *context, u32 latency_cap,
+                            u32 desired_width, u32 desired_height) {
   butter_log_debug("Creating swapchain");
 
   vk_surface_capabilities_khr_t caps;
@@ -75,8 +75,8 @@ b32 butter_create_swapchain(arena_t *arena, butter_context_t *context,
     if (res != VK_SUCCESS)
       butter_log_error("Could not get surface format count");
 
-    vk_surface_format_khr_t *formats =
-        arena_alloc_zeroed(arena, vk_surface_format_khr_t, format_count);
+    vk_surface_format_khr_t *formats = arena_alloc_zeroed(
+        context->arena, vk_surface_format_khr_t, format_count);
     vkGetPhysicalDeviceSurfaceFormatsKHR(
         context->physical_device, context->surface, &format_count, formats);
     if (res != VK_SUCCESS)
@@ -155,15 +155,15 @@ b32 butter_create_swapchain(arena_t *arena, butter_context_t *context,
                                      &image_count, null)) != VK_SUCCESS)
     butter_log_error("Could not get swapchain images count");
 
-  context->images = arena_alloc_zeroed(arena, vk_image_t, image_count);
+  context->images = arena_alloc_zeroed(context->arena, vk_image_t, image_count);
   if ((res = vkGetSwapchainImagesKHR(context->device, context->swapchain,
                                      &image_count, context->images)) !=
       VK_SUCCESS)
     butter_log_error("Could not get swapchain images");
 
   if (!context->image_views)
-    context->image_views =
-        arena_alloc_zeroed(arena, vk_image_view_t, context->image_count);
+    context->image_views = arena_alloc_zeroed(context->arena, vk_image_view_t,
+                                              context->image_count);
 
   vk_image_view_create_info_t image_view_create_info = {0};
   image_view_create_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
@@ -219,8 +219,8 @@ b32 butter_create_swapchain(arena_t *arena, butter_context_t *context,
   }
 
   if (!context->framebuffers)
-    context->framebuffers =
-        arena_alloc_zeroed(arena, vk_framebuffer_t, context->image_count);
+    context->framebuffers = arena_alloc_zeroed(context->arena, vk_framebuffer_t,
+                                               context->image_count);
   for (u32 i = 0; i < context->image_count; i++) {
     vk_framebuffer_create_info_t framebuffer_create_info = {0};
     framebuffer_create_info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
@@ -242,16 +242,15 @@ b32 butter_create_swapchain(arena_t *arena, butter_context_t *context,
   return true;
 }
 
-vk_result_t butter_update_surface(arena_t *arena, butter_context_t *context,
-                                  u32 latency_cap, u32 desired_width,
-                                  u32 desired_height) {
+vk_result_t butter_update_surface(butter_context_t *context, u32 latency_cap,
+                                  u32 desired_width, u32 desired_height) {
   vk_result_t res = vkDeviceWaitIdle(context->device);
   if (res != VK_SUCCESS)
     butter_log_error("Could not wait for device idle");
 
   butter_destroy_swapchain_resources(context);
 
-  if (!butter_create_swapchain(arena, context, latency_cap, desired_width,
+  if (!butter_create_swapchain(context, latency_cap, desired_width,
                                desired_height)) {
     butter_log_debug("Could not create swapchain, probably out of date");
     return VK_ERROR_OUT_OF_DATE_KHR;

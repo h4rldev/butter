@@ -17,7 +17,7 @@ butter_frame_t *butter_begin_frame(arena_t *arena, butter_t *butter);
 vk_result_t butter_end_frame(arena_t *arena, butter_t *butter,
                              butter_frame_t *frame);
 
-void butter_resize(arena_t *arena, butter_t *butter, u32 width, u32 height);
+void butter_resize(butter_t *butter, u32 width, u32 height);
 
 void butter_set_draw_callback(butter_t *butter, butter_draw_callback_t cb,
                               void *userdata);

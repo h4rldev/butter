@@ -9,12 +9,10 @@
 
 void butter_destroy_swapchain_resources(butter_context_t *context);
 
-b32 butter_create_swapchain(arena_t *arena, butter_context_t *context,
-                            u32 latency_cap, u32 desired_width,
-                            u32 desired_height);
+b32 butter_create_swapchain(butter_context_t *context, u32 latency_cap,
+                            u32 desired_width, u32 desired_height);
 
-vk_result_t butter_update_surface(arena_t *arena, butter_context_t *context,
-                                  u32 latency_cap, u32 desired_width,
-                                  u32 desired_height);
+vk_result_t butter_update_surface(butter_context_t *context, u32 latency_cap,
+                                  u32 desired_width, u32 desired_height);
 
 #endif // !BUTTER_SWAPCHAIN_H

@@ -796,14 +796,13 @@ void butter_submit_draws(butter_t *butter, const butter_draw_cmd_t *cmds,
     return;
   }
 
-  vk_viewport_t viewport = {
-      .x = 0.0f,
-      .y = 0.0f,
-      .width = (f32)butter->extent.width,
-      .height = (f32)butter->extent.height,
-      .minDepth = 0.0f,
-      .maxDepth = 1.0f,
-  };
+  vk_viewport_t viewport = {0};
+  viewport.x = 0.0f;
+  viewport.y = (f32)butter->extent.height;
+  viewport.width = (f32)butter->extent.width;
+  viewport.height = -(f32)butter->extent.height;
+  viewport.minDepth = 0.0f;
+  viewport.maxDepth = 1.0f;
 
   vkCmdSetViewport(cmd, 0, 1, &viewport);
 

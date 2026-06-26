@@ -229,7 +229,7 @@ int main(void) {
   bread_window_set_min_size(&window, 800, 600);
 
   butter_set_vsync(butter, true);
-  butter_set_target_refresh_rate(butter, 165.0f);
+  butter_set_target_refresh_rate(butter, 60.0f);
 
   butter_start_render_thread(butter, per_frame_arenas[current_frame_arena]);
   while (bread_window_should_close(&window) == false) {
@@ -239,7 +239,7 @@ int main(void) {
                            1.0f);
 
     butter_request_frame(butter);
-    butter_wait_for_frame(butter);
+    // butter_wait_for_frame(butter);
 
     // butter_log_debug("Clearing per frame arena: %d", current_frame_arena);
     arena_clear(per_frame_arenas[current_frame_arena]);

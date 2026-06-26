@@ -22,25 +22,26 @@ static u64 get_time_ns(void) {
 }
 
 static void butter_limit_frame_rate(butter_t *butter, u64 frame_start_ns) {
-  if (!butter)
+  if (!butter || butter->target_refresh_rate <= 0.0f)
     return;
 
-  f32 target = butter->target_refresh_rate;
-  if (target <= 0.0f)
-    return;
+  u64 target_ns = (u64)(1e9f / butter->target_refresh_rate);
+  u64 target_end_ns = frame_start_ns + target_ns;
 
-  u64 elapsed = get_time_ns() - frame_start_ns;
-  u64 target_ns = (u64)(1e9f / target);
+  u64 current_ns = get_time_ns();
+  i64 remaining = (i64)(target_end_ns - current_ns);
 
-  if (elapsed < target_ns) {
-    u64 sleep_ns = target_ns - elapsed;
+  if (remaining > 1000000) {            // 1ms threshold
+    i64 sleep_ns = remaining - 1000000; // Wake up 1ms before the deadline
     struct timespec ts = {
         .tv_sec = sleep_ns / 1000000000ULL,
         .tv_nsec = sleep_ns % 1000000000ULL,
     };
-
     thrd_sleep(&ts, NULL);
   }
+
+  while (get_time_ns() < target_end_ns)
+    ;
 }
 
 butter_t *butter_init(arena_t *arena, butter_surface_info_t *surface_info,
@@ -190,14 +191,15 @@ butter_frame_t *butter_begin_frame(arena_t *arena, butter_t *butter) {
 
 vk_result_t butter_end_frame(arena_t *arena, butter_t *butter,
                              butter_frame_t *frame) {
-  // butter_log_debug("Ending frame");
+  vk_result_t res;
+
   vkCmdEndRenderPass(frame->cmd);
   vkEndCommandBuffer(frame->cmd);
 
+  res = butter_submit_and_present(butter, frame->cmd, frame->image_index);
   butter_limit_frame_rate(butter, frame->frame_start_ns);
 
-  // butter_log_debug("Submitting frame");
-  return butter_submit_and_present(butter, frame->cmd, frame->image_index);
+  return res;
 }
 
 void butter_resize(butter_t *butter, u32 width, u32 height) {

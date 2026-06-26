@@ -62,12 +62,6 @@ vk_result_t butter_acquire_next_image(butter_context_t *context,
     return res;
   }
 
-  u64 new_value = 0;
-  vkGetSemaphoreCounterValue(context->device, context->timeline_semaphore,
-                             &new_value);
-  butter_log_debug("Acquire signaled semaphore to %llu", new_value);
-  context->timeline_value = new_value;
-
   *image_index = image_index_tmp;
   return VK_SUCCESS;
 

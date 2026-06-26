@@ -1,7 +1,3 @@
-#ifdef BUTTER_X11
-#include <stdlib.h>
-#endif
-
 #include <stdatomic.h>
 #include <threads.h>
 
@@ -106,16 +102,6 @@ butter_t *butter_init(arena_t *arena, butter_surface_info_t *surface_info,
     butter_destroy(butter);
     return null;
   }
-
-#ifdef BUTTER_X11
-  /*butter_log_debug("Flushing X11 events");
-  if (surface_info->backend == BUTTER_BACKEND_XCB) {
-    xcb_connection_t *conn = (xcb_connection_t *)surface_info->display;
-    xcb_generic_event_t *ev;
-    while ((ev = xcb_poll_for_event(conn)) != null)
-      free(ev);
-  }*/
-#endif
 
   return butter;
 }

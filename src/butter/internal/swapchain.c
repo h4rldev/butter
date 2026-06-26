@@ -248,6 +248,29 @@ vk_result_t butter_update_surface(butter_context_t *context, u32 latency_cap,
   if (res != VK_SUCCESS)
     butter_log_error("Could not wait for device idle");
 
+#ifdef VK_API_VERSION_1_2
+  if (context->available_vulkan_features & BUTTER_FEATURE_TIMELINE_SEMAPHORE) {
+    if (context->timeline_semaphore) {
+      vkDestroySemaphore(context->device, context->timeline_semaphore, NULL);
+      context->timeline_semaphore = VK_NULL_HANDLE;
+    }
+    vk_semaphore_type_create_info_t type_info = {0};
+    type_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO;
+    type_info.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
+    type_info.initialValue = 0;
+
+    vk_semaphore_create_info_t sem_info = {0};
+    sem_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+    sem_info.pNext = &type_info;
+
+    vkCreateSemaphore(context->device, &sem_info, NULL,
+                      &context->timeline_semaphore);
+    context->timeline_value = 0;
+    butter_log_debug("Timeline reset: timeline_value=0, image_count=%u",
+                     context->image_count);
+  }
+#endif
+
   butter_destroy_swapchain_resources(context);
 
   if (!butter_create_swapchain(context, latency_cap, desired_width,
@@ -259,7 +282,9 @@ vk_result_t butter_update_surface(butter_context_t *context, u32 latency_cap,
   for (u32 i = 0; i < context->image_count; i++) {
     vkDestroySemaphore(context->device, context->rendering_finished[i], null);
     vkDestroySemaphore(context->device, context->image_available[i], null);
-    vkDestroyFence(context->device, context->in_flight_fences[i], null);
+    if ((context->available_vulkan_features &
+         BUTTER_FEATURE_TIMELINE_SEMAPHORE) == 0)
+      vkDestroyFence(context->device, context->in_flight_fences[i], null);
   }
 
   vk_semaphore_create_info_t semaphore_info = {0};
@@ -270,18 +295,19 @@ vk_result_t butter_update_surface(butter_context_t *context, u32 latency_cap,
   fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
   for (u32 i = 0; i < context->image_count; i++) {
-    vk_result_t res = vkCreateSemaphore(context->device, &semaphore_info, null,
-                                        &context->rendering_finished[i]);
-    if (res != VK_SUCCESS)
+    if ((res = vkCreateSemaphore(context->device, &semaphore_info, null,
+                                 &context->rendering_finished[i])) !=
+        VK_SUCCESS)
       butter_log_error("Could not create rendering finished semaphore");
-    res = vkCreateSemaphore(context->device, &semaphore_info, null,
-                            &context->image_available[i]);
-    if (res != VK_SUCCESS)
+    if ((res = vkCreateSemaphore(context->device, &semaphore_info, null,
+                                 &context->image_available[i])) != VK_SUCCESS)
       butter_log_error("Could not create image available semaphore");
-    res = vkCreateFence(context->device, &fence_info, null,
-                        &context->in_flight_fences[i]);
-    if (res != VK_SUCCESS)
-      butter_log_error("Could not create in flight fence");
+
+    if ((context->available_vulkan_features &
+         BUTTER_FEATURE_TIMELINE_SEMAPHORE) == 0)
+      if ((res = vkCreateFence(context->device, &fence_info, null,
+                               &context->in_flight_fences[i])) != VK_SUCCESS)
+        butter_log_error("Could not create in flight fence");
   }
 
   context->frame_index = 0;

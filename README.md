@@ -4,7 +4,20 @@ A WIP Vulkan Renderer that interacts with XCB and Wayland.
 
 ## Current State
 
-Not much to see yet, but it's a start, and it is kinda working on tests.
+Somewhat usable.
+
+## Features
+
+- Multi-threaded and Single-threaded rendering
+- A somewhat easy to use drawing API
+- Multi-thread and Single-thread texture uploading
+
+- Some support for >Vulkan 1.0 features
+
+## Todos
+
+- Implement a way to let a person use Push Descriptors.
+- Document the Codebase
 
 ## License
 

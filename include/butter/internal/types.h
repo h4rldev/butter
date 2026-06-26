@@ -14,6 +14,10 @@
 
 #include <threads.h>
 
+#define BUTTER_FEATURE_TIMELINE_SEMAPHORE (1 << 0)
+#define BUTTER_FEATURE_SYNCHRONIZATION_2 (1 << 1)
+#define BUTTER_FEATURE_PUSH_DESCRIPTORS (1 << 2)
+
 /** Aliases */
 typedef PFN_vkGetInstanceProcAddr pfn_vkGetInstanceProcAddr;
 typedef PFN_vkEnumerateInstanceVersion pfn_vkEnumerateInstanceVersion;
@@ -28,6 +32,29 @@ typedef VkWaylandSurfaceCreateInfoKHR vk_wayland_surface_create_info_khr_t;
 typedef VkPhysicalDevice vk_physical_device_t;
 typedef VkPhysicalDeviceProperties vk_physical_device_properties_t;
 typedef VkPhysicalDeviceMemoryProperties vk_physical_device_memory_properties_t;
+
+typedef VkPhysicalDeviceFeatures2 vk_physical_device_features2_t;
+#ifdef VK_API_VERSION_1_1
+typedef VkPhysicalDeviceVulkan11Features vk_physical_device_vulkan11_features_t;
+#endif
+
+#ifdef VK_API_VERSION_1_2
+typedef VkPhysicalDeviceVulkan12Features vk_physical_device_vulkan12_features_t;
+typedef VkSemaphoreTypeCreateInfo vk_semaphore_type_create_info_t;
+typedef VkSemaphoreType vk_semaphore_type_t;
+typedef VkSemaphoreWaitInfo vk_semaphore_wait_info_t;
+typedef VkTimelineSemaphoreSubmitInfo vk_timeline_semaphore_submit_info_t;
+#endif
+
+#ifdef VK_API_VERSION_1_3
+typedef VkPhysicalDeviceVulkan13Features vk_physical_device_vulkan13_features_t;
+typedef VkImageMemoryBarrier2 vk_image_memory_barrier2_t;
+typedef VkDependencyInfo vk_dependency_info_t;
+#endif
+
+#ifdef VK_API_VERSION_1_4
+typedef VkPhysicalDeviceVulkan14Features vk_physical_device_vulkan14_features_t;
+#endif
 
 typedef VkSurfaceCapabilitiesKHR vk_surface_capabilities_khr_t;
 typedef VkDevice vk_device_t;
@@ -201,6 +228,9 @@ typedef void (*butter_draw_callback_t)(vk_command_buffer_t cmd,
 
 typedef struct butter_context {
   vk_instance_t instance;
+  u32 available_vulkan_features;
+  u32 driver_version;
+
   vk_physical_device_t physical_device;
   vk_device_t device;
   vk_queue_t queue;
@@ -221,6 +251,9 @@ typedef struct butter_context {
   vk_semaphore_t *image_available;
   vk_semaphore_t *rendering_finished;
   u32 frame_index;
+
+  vk_semaphore_t timeline_semaphore;
+  u64 timeline_value;
 
   vk_command_pool_t cmd_pool;
   vk_command_buffer_t *cmds;

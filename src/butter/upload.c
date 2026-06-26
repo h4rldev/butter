@@ -109,20 +109,47 @@ butter_texture_t butter_create_texture(butter_t *butter, u32 width, u32 height,
   begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
   vkBeginCommandBuffer(cmd, &begin_info);
 
-  vk_image_memory_barrier_t barrier_to_dst = {0};
-  barrier_to_dst.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-  barrier_to_dst.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-  barrier_to_dst.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-  barrier_to_dst.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-  barrier_to_dst.image = texture.image;
-  barrier_to_dst.subresourceRange = (vk_image_subresource_range_t){0};
-  barrier_to_dst.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-  barrier_to_dst.subresourceRange.levelCount = 1;
-  barrier_to_dst.subresourceRange.layerCount = 1;
+  if ((butter->available_vulkan_features & BUTTER_FEATURE_SYNCHRONIZATION_2) ==
+      0) {
+    vk_image_memory_barrier_t barrier_to_dst = {0};
+    barrier_to_dst.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    barrier_to_dst.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    barrier_to_dst.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    barrier_to_dst.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    barrier_to_dst.image = texture.image;
+    barrier_to_dst.subresourceRange = (vk_image_subresource_range_t){0};
+    barrier_to_dst.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    barrier_to_dst.subresourceRange.levelCount = 1;
+    barrier_to_dst.subresourceRange.layerCount = 1;
 
-  vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-                       VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, null, 0, null, 1,
-                       &barrier_to_dst);
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                         VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, null, 0, null, 1,
+                         &barrier_to_dst);
+  } else {
+#ifdef VK_API_VERSION_1_3
+    vk_image_memory_barrier2_t barrier_to_dst = {0};
+    barrier_to_dst.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+    barrier_to_dst.srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+    barrier_to_dst.srcAccessMask = 0;
+    barrier_to_dst.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+    barrier_to_dst.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    barrier_to_dst.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    barrier_to_dst.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    barrier_to_dst.image = texture.image;
+    barrier_to_dst.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    barrier_to_dst.subresourceRange.levelCount = 1;
+    barrier_to_dst.subresourceRange.layerCount = 1;
+
+    vk_dependency_info_t dependency_info = {0};
+    dependency_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+    dependency_info.imageMemoryBarrierCount = 1;
+    dependency_info.pImageMemoryBarriers = &barrier_to_dst;
+    vkCmdPipelineBarrier2(cmd, &dependency_info);
+#else
+    butter_log_fatal("How did you get here?");
+    return texture;
+#endif
+  }
 
   vk_buffer_image_copy_t region = {0};
   region.bufferOffset = 0;
@@ -139,21 +166,50 @@ butter_texture_t butter_create_texture(butter_t *butter, u32 width, u32 height,
   vkCmdCopyBufferToImage(cmd, staging_buffer.handle, texture.image,
                          VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 
-  vk_image_memory_barrier_t barrier_to_shader = {0};
-  barrier_to_shader.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-  barrier_to_shader.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-  barrier_to_shader.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-  barrier_to_shader.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-  barrier_to_shader.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-  barrier_to_shader.image = texture.image;
-  barrier_to_shader.subresourceRange = (vk_image_subresource_range_t){0};
-  barrier_to_shader.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-  barrier_to_shader.subresourceRange.levelCount = 1;
-  barrier_to_shader.subresourceRange.layerCount = 1;
+  if ((butter->available_vulkan_features & BUTTER_FEATURE_SYNCHRONIZATION_2) ==
+      0) {
 
-  vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                       VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, null, 0,
-                       null, 1, &barrier_to_shader);
+    vk_image_memory_barrier_t barrier_to_shader = {0};
+    barrier_to_shader.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    barrier_to_shader.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    barrier_to_shader.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    barrier_to_shader.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    barrier_to_shader.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    barrier_to_shader.image = texture.image;
+    barrier_to_shader.subresourceRange = (vk_image_subresource_range_t){0};
+    barrier_to_shader.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    barrier_to_shader.subresourceRange.levelCount = 1;
+    barrier_to_shader.subresourceRange.layerCount = 1;
+
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                         VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, null, 0,
+                         null, 1, &barrier_to_shader);
+
+  } else {
+#ifdef VK_API_VERSION_1_3
+    vk_image_memory_barrier2_t barrier_to_shader = {0};
+    barrier_to_shader.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+    barrier_to_shader.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+    barrier_to_shader.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    barrier_to_shader.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+    barrier_to_shader.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+    barrier_to_shader.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    barrier_to_shader.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    barrier_to_shader.image = texture.image;
+    barrier_to_shader.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    barrier_to_shader.subresourceRange.levelCount = 1;
+    barrier_to_shader.subresourceRange.layerCount = 1;
+
+    vk_dependency_info_t dependency_info = {0};
+    dependency_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+    dependency_info.imageMemoryBarrierCount = 1;
+    dependency_info.pImageMemoryBarriers = &barrier_to_shader;
+    vkCmdPipelineBarrier2(cmd, &dependency_info);
+#else
+    butter_log_fatal("How did you get here?");
+    return texture;
+#endif
+  }
 
   vkEndCommandBuffer(cmd);
 
@@ -279,20 +335,47 @@ static int butter_upload_thread(void *userdata) {
     begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     vkBeginCommandBuffer(cmd, &begin_info);
 
-    vk_image_memory_barrier_t barrier_to_dst = {0};
-    barrier_to_dst.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-    barrier_to_dst.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    barrier_to_dst.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-    barrier_to_dst.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    barrier_to_dst.image = upload->texture.image;
-    barrier_to_dst.subresourceRange = (vk_image_subresource_range_t){0};
-    barrier_to_dst.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    barrier_to_dst.subresourceRange.levelCount = 1;
-    barrier_to_dst.subresourceRange.layerCount = 1;
+    if ((butter->available_vulkan_features &
+         BUTTER_FEATURE_SYNCHRONIZATION_2) == 0) {
+      vk_image_memory_barrier_t barrier_to_dst = {0};
+      barrier_to_dst.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+      barrier_to_dst.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+      barrier_to_dst.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+      barrier_to_dst.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+      barrier_to_dst.image = upload->texture.image;
+      barrier_to_dst.subresourceRange = (vk_image_subresource_range_t){0};
+      barrier_to_dst.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+      barrier_to_dst.subresourceRange.levelCount = 1;
+      barrier_to_dst.subresourceRange.layerCount = 1;
 
-    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-                         VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, null, 0, null, 1,
-                         &barrier_to_dst);
+      vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                           VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, null, 0, null,
+                           1, &barrier_to_dst);
+    } else {
+#ifdef VK_API_VERSION_1_3
+      vk_image_memory_barrier2_t barrier_to_dst = {0};
+      barrier_to_dst.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+      barrier_to_dst.srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+      barrier_to_dst.srcAccessMask = 0;
+      barrier_to_dst.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+      barrier_to_dst.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+      barrier_to_dst.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+      barrier_to_dst.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+      barrier_to_dst.image = upload->texture.image;
+      barrier_to_dst.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+      barrier_to_dst.subresourceRange.levelCount = 1;
+      barrier_to_dst.subresourceRange.layerCount = 1;
+
+      vk_dependency_info_t dependency_info = {0};
+      dependency_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+      dependency_info.imageMemoryBarrierCount = 1;
+      dependency_info.pImageMemoryBarriers = &barrier_to_dst;
+      vkCmdPipelineBarrier2(cmd, &dependency_info);
+#else
+      butter_log_fatal("How did you get here?");
+      return texture;
+#endif
+    }
 
     vk_buffer_image_copy_t region = {0};
     region.bufferOffset = 0;
@@ -311,21 +394,48 @@ static int butter_upload_thread(void *userdata) {
                            upload->texture.image,
                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 
-    vk_image_memory_barrier_t barrier_to_shader = {0};
-    barrier_to_shader.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-    barrier_to_shader.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-    barrier_to_shader.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    barrier_to_shader.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    barrier_to_shader.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-    barrier_to_shader.image = upload->texture.image;
-    barrier_to_shader.subresourceRange = (vk_image_subresource_range_t){0};
-    barrier_to_shader.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    barrier_to_shader.subresourceRange.levelCount = 1;
-    barrier_to_shader.subresourceRange.layerCount = 1;
+    if ((butter->available_vulkan_features &
+         BUTTER_FEATURE_SYNCHRONIZATION_2) == 0) {
+      vk_image_memory_barrier_t barrier_to_shader = {0};
+      barrier_to_shader.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+      barrier_to_shader.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+      barrier_to_shader.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+      barrier_to_shader.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+      barrier_to_shader.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+      barrier_to_shader.image = upload->texture.image;
+      barrier_to_shader.subresourceRange = (vk_image_subresource_range_t){0};
+      barrier_to_shader.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+      barrier_to_shader.subresourceRange.levelCount = 1;
+      barrier_to_shader.subresourceRange.layerCount = 1;
 
-    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                         VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, null, 0,
-                         null, 1, &barrier_to_shader);
+      vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                           VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, null, 0,
+                           null, 1, &barrier_to_shader);
+    } else {
+#ifdef VK_API_VERSION_1_3
+      vk_image_memory_barrier2_t barrier_to_shader = {0};
+      barrier_to_shader.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+      barrier_to_shader.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+      barrier_to_shader.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+      barrier_to_shader.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+      barrier_to_shader.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+      barrier_to_shader.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+      barrier_to_shader.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+      barrier_to_shader.image = upload->texture.image;
+      barrier_to_shader.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+      barrier_to_shader.subresourceRange.levelCount = 1;
+      barrier_to_shader.subresourceRange.layerCount = 1;
+
+      vk_dependency_info_t dependency_info = {0};
+      dependency_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+      dependency_info.imageMemoryBarrierCount = 1;
+      dependency_info.pImageMemoryBarriers = &barrier_to_shader;
+      vkCmdPipelineBarrier2(cmd, &dependency_info);
+#else
+      butter_log_fatal("How did you get here?");
+      return texture;
+#endif
+    }
 
     vkEndCommandBuffer(cmd);
 

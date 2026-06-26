@@ -58,6 +58,37 @@ vk_instance_t butter_create_instance(arena_t *arena, const cstr *app_name,
     return VK_NULL_HANDLE;
   }
 
+  vk_result_t res;
+
+  u32 header_version = VK_API_VERSION_1_0;
+  u32 api_version = VK_API_VERSION_1_0;
+  u32 driver_version = 0;
+  if ((res = vkEnumerateInstanceVersion(&driver_version)) != VK_SUCCESS)
+    butter_log_error("Could not get driver version, using 1.0: %d", res);
+  else {
+#ifdef VK_API_VERSION_1_4
+    header_version = VK_API_VERSION_1_4;
+#elif defined(VK_API_VERSION_1_3)
+    header_version = VK_API_VERSION_1_3;
+#elif defined(VK_API_VERSION_1_2)
+    header_version = VK_API_VERSION_1_2;
+#elif defined(VK_API_VERSION_1_1)
+    header_version = VK_API_VERSION_1_1;
+#else
+    header_version = VK_API_VERSION_1_0;
+#endif
+
+    api_version =
+        (driver_version > header_version) ? header_version : driver_version;
+  }
+
+  butter_log_debug(
+      "Vulkan driver version: %d.%d.%d, using API: %d.%d.%d",
+      VK_API_VERSION_MAJOR(driver_version),
+      VK_API_VERSION_MINOR(driver_version),
+      VK_API_VERSION_PATCH(driver_version), VK_API_VERSION_MAJOR(api_version),
+      VK_API_VERSION_MINOR(api_version), VK_API_VERSION_PATCH(api_version));
+
   u32 extension_count = 0;
   const char *const *exts =
       butter_get_required_instance_extensions(backend, &extension_count);
@@ -82,7 +113,7 @@ vk_instance_t butter_create_instance(arena_t *arena, const cstr *app_name,
   app_info.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
   app_info.pEngineName = "butter";
   app_info.engineVersion = VK_MAKE_VERSION(1, 0, 0);
-  app_info.apiVersion = VK_API_VERSION_1_0;
+  app_info.apiVersion = api_version;
 
   vk_instance_create_info_t instance_create_info = {0};
   instance_create_info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
@@ -93,7 +124,6 @@ vk_instance_t butter_create_instance(arena_t *arena, const cstr *app_name,
   instance_create_info.ppEnabledExtensionNames = all_exts;
 
   vk_instance_t instance = VK_NULL_HANDLE;
-  vk_result_t res;
 
   if ((res = vkCreateInstance(&instance_create_info, null, &instance)) !=
       VK_SUCCESS) {
@@ -115,6 +145,11 @@ butter_context_t *butter_create(arena_t *arena, vk_instance_t instance,
     return null;
   }
 
+  u32 driver_version = 0;
+  if ((res = vkEnumerateInstanceVersion(&driver_version)) != VK_SUCCESS)
+    butter_log_error("Could not get driver version, using 1.0: %d", res);
+
+  context->driver_version = driver_version;
   context->instance = instance;
   context->arena = arena;
 
@@ -153,13 +188,6 @@ butter_context_t *butter_create(arena_t *arena, vk_instance_t instance,
   pool_info.queueFamilyIndex = context->queue_family;
   pool_info.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
 
-  vk_semaphore_create_info_t semaphore_info = {0};
-  semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-
-  vk_fence_create_info_t fence_info = {0};
-  fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-  fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-
   vk_pipeline_cache_create_info_t pipeline_cache_info = {0};
   pipeline_cache_info.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
 
@@ -177,25 +205,73 @@ butter_context_t *butter_create(arena_t *arena, vk_instance_t instance,
     context->upload_pool_sync = VK_NULL_HANDLE;
   }
 
-  context->rendering_finished =
-      arena_alloc_zeroed(arena, vk_semaphore_t, context->image_count);
-  context->image_available =
-      arena_alloc_zeroed(arena, vk_semaphore_t, context->image_count);
-  context->in_flight_fences =
-      arena_alloc_zeroed(arena, vk_fence_t, context->image_count);
+  if ((context->available_vulkan_features &
+       BUTTER_FEATURE_TIMELINE_SEMAPHORE) == 0) {
+    vk_semaphore_create_info_t semaphore_info = {0};
+    semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
 
-  for (u32 i = 0; i < context->image_count; i++) {
-    if ((res = vkCreateSemaphore(context->device, &semaphore_info, null,
-                                 &context->rendering_finished[i])) !=
-        VK_SUCCESS)
-      butter_log_error("Could not create rendering finished semaphore: %d",
-                       res);
-    if ((res = vkCreateSemaphore(context->device, &semaphore_info, null,
-                                 &context->image_available[i])) != VK_SUCCESS)
-      butter_log_error("Could not create image available semaphore: %d", res);
-    if ((res = vkCreateFence(context->device, &fence_info, null,
-                             &context->in_flight_fences[i])) != VK_SUCCESS)
-      butter_log_error("Could not create in flight fence: %d", res);
+    vk_fence_create_info_t fence_info = {0};
+    fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+    fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+
+    context->rendering_finished =
+        arena_alloc_zeroed(arena, vk_semaphore_t, context->image_count);
+    context->image_available =
+        arena_alloc_zeroed(arena, vk_semaphore_t, context->image_count);
+    context->in_flight_fences =
+        arena_alloc_zeroed(arena, vk_fence_t, context->image_count);
+
+    for (u32 i = 0; i < context->image_count; i++) {
+      if ((res = vkCreateSemaphore(context->device, &semaphore_info, null,
+                                   &context->rendering_finished[i])) !=
+          VK_SUCCESS)
+        butter_log_error("Could not create rendering finished semaphore: %d",
+                         res);
+      if ((res = vkCreateSemaphore(context->device, &semaphore_info, null,
+                                   &context->image_available[i])) != VK_SUCCESS)
+        butter_log_error("Could not create image available semaphore: %d", res);
+      if ((res = vkCreateFence(context->device, &fence_info, null,
+                               &context->in_flight_fences[i])) != VK_SUCCESS)
+        butter_log_error("Could not create in flight fence: %d", res);
+    }
+  } else {
+#ifdef VK_API_VERSION_1_2
+    vk_semaphore_create_info_t old_semaphore_info = {0};
+    old_semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+
+    context->rendering_finished =
+        arena_alloc_zeroed(arena, vk_semaphore_t, context->image_count);
+    context->image_available =
+        arena_alloc_zeroed(arena, vk_semaphore_t, context->image_count);
+
+    for (u32 i = 0; i < context->image_count; i++) {
+      if ((res = vkCreateSemaphore(context->device, &old_semaphore_info, null,
+                                   &context->rendering_finished[i])) !=
+          VK_SUCCESS)
+        butter_log_error("Could not create rendering finished semaphore: %d",
+                         res);
+      if ((res = vkCreateSemaphore(context->device, &old_semaphore_info, null,
+                                   &context->image_available[i])) != VK_SUCCESS)
+        butter_log_error("Could not create image available semaphore: %d", res);
+    }
+
+    vk_semaphore_type_create_info_t semaphore_type_info = {0};
+    semaphore_type_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO;
+    semaphore_type_info.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
+    semaphore_type_info.initialValue = 0;
+
+    vk_semaphore_create_info_t semaphore_info = {0};
+    semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+    semaphore_info.pNext = &semaphore_type_info;
+
+    vkCreateSemaphore(context->device, &semaphore_info, null,
+                      &context->timeline_semaphore);
+    context->timeline_value = 0;
+    butter_log_debug("Timeline semaphore initialized to 0");
+#else
+    butter_log_fatal("How did you get here?");
+    return null;
+#endif
   }
 
   mtx_init(&context->render_mutex, mtx_plain);

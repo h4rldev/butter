@@ -135,33 +135,17 @@ butter_frame_t *butter_begin_frame(arena_t *arena, butter_t *butter) {
   u32 image_index = 0;
   vk_result_t res = butter_acquire_next_image(butter, &image_index);
   if (res != VK_SUCCESS) {
-    if (res == VK_TIMEOUT) {
+    if (res == VK_TIMEOUT)
       butter_log_debug("Acquire timed out - skipping frame");
-      butter->resize_pending = true;
-      butter->pending_width = butter->extent.width;
-      butter->pending_height = butter->extent.height;
-      return NULL;
-    }
-
-    if (res == VK_ERROR_OUT_OF_DATE_KHR || res == VK_SUBOPTIMAL_KHR) {
+    else if (res == VK_ERROR_OUT_OF_DATE_KHR || res == VK_SUBOPTIMAL_KHR)
       butter_log_debug("Swapchain out of date - resizing");
-      butter_resize(butter, extent.width, extent.height);
-      res = butter_acquire_next_image(butter, &image_index);
-      if (res != VK_SUCCESS) {
-        if (res == VK_TIMEOUT)
-          butter_log_error("Acquire timed out after resize - skipping frame");
-        else
-          butter_log_error("Could not acquire next image after resize: %d",
-                           res);
-        return NULL;
-      }
-    } else {
+    else
       butter_log_debug("Acquire error %d - triggering resize", res);
-      butter->resize_pending = true;
-      butter->pending_width = butter->extent.width;
-      butter->pending_height = butter->extent.height;
-      return NULL;
-    }
+
+    butter->resize_pending = true;
+    butter->pending_width = butter->extent.width;
+    butter->pending_height = butter->extent.height;
+    return NULL;
   }
 
   u32 frame_index = butter->frame_index;

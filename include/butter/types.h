@@ -124,6 +124,7 @@ typedef struct {
 typedef struct {
   vk_pipeline_layout_t layout;
   vk_pipeline_t pipeline;
+  b32 uses_descriptors;
 } butter_pipeline_t;
 
 typedef struct butter_buffer butter_buffer_t;

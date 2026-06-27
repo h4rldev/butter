@@ -283,6 +283,7 @@ static b32 butter_validate_pipeline_desc(const butter_pipeline_desc_t *desc) {
 butter_pipeline_t butter_create_pipeline(butter_t *butter,
                                          const butter_pipeline_desc_t *desc,
                                          vk_render_pass_t render_pass) {
+  b32 uses_descriptors = desc->descriptor_set_layout_count > 0;
   if (desc->shaders_count == 0) {
     butter_log_error("Can't create pipeline with no shaders");
     return (butter_pipeline_t){0};
@@ -475,6 +476,7 @@ butter_pipeline_t butter_create_pipeline(butter_t *butter,
   return (butter_pipeline_t){
       .pipeline = pipeline,
       .layout = layout,
+      .uses_descriptors = uses_descriptors,
   };
 }
 
@@ -828,27 +830,29 @@ void butter_submit_draws(butter_t *butter, const butter_draw_cmd_t *cmds,
     if (draw->index_buffer)
       vkCmdBindIndexBuffer(cmd, draw->index_buffer, 0, draw->index_type);
 
-    if (draw->descriptor_sets && draw->descriptor_set_count > 0) {
-      vk_descriptor_set_t sets[draw->descriptor_set_count];
-      for (u32 j = 0; j < draw->descriptor_set_count; j++) {
-        sets[j] = draw->descriptor_sets[j].set;
-      }
+    if (draw->pipeline.uses_descriptors) {
+      if (draw->descriptor_sets && draw->descriptor_set_count > 0) {
+        vk_descriptor_set_t sets[draw->descriptor_set_count];
+        for (u32 j = 0; j < draw->descriptor_set_count; j++) {
+          sets[j] = draw->descriptor_sets[j].set;
+        }
 
-      vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                              draw->pipeline.layout, 0,
-                              draw->descriptor_set_count, sets, 0, null);
-    } else {
-      butter_texture_t *tex = null;
-      if (draw->texture_id != 0)
-        tex = butter_texture_get(butter, draw->texture_id);
-
-      if (!tex || !butter_texture_is_ready(tex))
-        tex = butter_texture_get(butter, 0);
-
-      if (tex)
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                draw->pipeline.layout, 0, 1,
-                                &tex->descriptor_set.set, 0, null);
+                                draw->pipeline.layout, 0,
+                                draw->descriptor_set_count, sets, 0, null);
+      } else {
+        butter_texture_t *tex = null;
+        if (draw->texture_id != 0)
+          tex = butter_texture_get(butter, draw->texture_id);
+
+        if (!tex || !butter_texture_is_ready(tex))
+          tex = butter_texture_get(butter, 0);
+
+        if (tex)
+          vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                  draw->pipeline.layout, 0, 1,
+                                  &tex->descriptor_set.set, 0, null);
+      }
     }
 
     if (draw->index_buffer && draw->index_count > 0)

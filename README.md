@@ -16,8 +16,9 @@ Somewhat usable.
 
 ## Todos
 
-- Implement a way to let a person use Push Descriptors.
-- Document the Codebase
+- [ ] - Code cleanup
+- [ ] - Implement a way to let a person use Push Descriptors.
+- [ ] - Document the Codebase
 
 ## License
 

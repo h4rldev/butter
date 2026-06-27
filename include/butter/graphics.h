@@ -63,4 +63,7 @@ void butter_destroy_sampler(butter_t *butter, vk_sampler_t sampler);
 void butter_submit_draws(butter_t *butter, const butter_draw_cmd_t *cmds,
                          u32 count);
 
+butter_allocation_t butter_alloc_vertices(butter_t *butter, u32 vertex_count,
+                                          u32 stride);
+
 #endif // !BUTTER_GRAPHICS_H

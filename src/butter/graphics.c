@@ -843,3 +843,25 @@ void butter_submit_draws(butter_t *butter, const butter_draw_cmd_t *cmds,
       vkCmdDraw(cmd, draw->vertex_count, 1, 0, 0);
   }
 }
+
+butter_allocation_t butter_alloc_vertices(butter_t *butter, u32 vertex_count,
+                                          u32 stride) {
+  u32 frame_index = butter->frame_index;
+  butter_allocation_t allocation = {0};
+
+  u64 size_needed = (u64)vertex_count * stride;
+
+  if (butter->dynamic_vbo_offset + size_needed > butter->dynamic_vbo_size) {
+    butter_log_error("Dynamic buffer overflow");
+    return allocation;
+  }
+
+  butter_buffer_t *buffer = &butter->dynamic_vbos[frame_index];
+  allocation.buffer = buffer->handle;
+  allocation.offset = butter->dynamic_vbo_offset;
+  allocation.mapped = (u8 *)buffer->mapped + butter->dynamic_vbo_offset;
+
+  butter->dynamic_vbo_offset += size_needed;
+
+  return allocation;
+}

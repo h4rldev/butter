@@ -133,12 +133,15 @@ butter_frame_t *butter_begin_frame(arena_t *arena, butter_t *butter) {
     return null;
   }
 
+  butter->dynamic_vbo_offset = 0;
+
   u32 image_index = 0;
   vk_result_t res = butter_acquire_next_image(butter, &image_index);
   if (res != VK_SUCCESS) {
-    if (res == VK_TIMEOUT)
+    if (res == VK_TIMEOUT) {
       butter_log_debug("Acquire timed out - skipping frame");
-    else if (res == VK_ERROR_OUT_OF_DATE_KHR || res == VK_SUBOPTIMAL_KHR)
+      return null;
+    } else if (res == VK_ERROR_OUT_OF_DATE_KHR || res == VK_SUBOPTIMAL_KHR)
       butter_log_debug("Swapchain out of date - resizing");
     else
       butter_log_debug("Acquire error %d - triggering resize", res);

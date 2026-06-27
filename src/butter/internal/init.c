@@ -3,6 +3,7 @@
 #include <htils/basictypes.h>
 #include <vulkan/vulkan.h>
 
+#include <butter/graphics.h>
 #include <butter/internal/check.h>
 #include <butter/internal/device.h>
 #include <butter/internal/get.h>
@@ -203,6 +204,21 @@ butter_context_t *butter_create(arena_t *arena, vk_instance_t instance,
                                  &context->upload_pool_sync)) != VK_SUCCESS) {
     butter_log_error("Could not create synchronous upload pool: %d", res);
     context->upload_pool_sync = VK_NULL_HANDLE;
+  }
+
+  context->dynamic_vbo_size = MiB(8);
+  context->dynamic_vbo_offset = 0;
+  context->dynamic_vbos =
+      arena_alloc_zeroed(arena, struct butter_buffer, context->image_count);
+
+  for (u32 i = 0; i < context->image_count; i++) {
+    context->dynamic_vbos[i] =
+        butter_create_buffer(context, context->dynamic_vbo_size,
+                             VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, true);
+    if (context->dynamic_vbos[i].handle == VK_NULL_HANDLE) {
+      butter_log_fatal("Could not create dynamic VBO");
+      return null;
+    }
   }
 
   if ((context->available_vulkan_features &

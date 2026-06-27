@@ -134,6 +134,12 @@ typedef struct {
 } butter_descriptor_set_t;
 
 typedef struct {
+  vk_buffer_t buffer;
+  u64 offset;
+  void *mapped;
+} butter_allocation_t;
+
+typedef struct {
   vk_filter_t mag_filter;
   vk_filter_t min_filter;
   vk_sampler_mipmap_mode_t mipmap_mode;

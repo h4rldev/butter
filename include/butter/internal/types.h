@@ -295,6 +295,10 @@ typedef struct butter_context {
 
   vk_command_pool_t upload_pool_async;
   vk_command_pool_t upload_pool_sync;
+
+  struct butter_buffer *dynamic_vbos;
+  u32 dynamic_vbo_size;
+  u64 dynamic_vbo_offset;
 } butter_context_t;
 
 #endif // !BUTTER_INTERNAL_TYPES_H

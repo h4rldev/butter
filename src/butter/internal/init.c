@@ -332,22 +332,15 @@ butter_context_t *butter_create(arena_t *arena, vk_instance_t instance,
     return NULL;
   }
 
-// 2. Generate a 2x2 checkerboard (Pink/Black)
 #define CHECKER_SIZE 2
 #define CHECKER_PIXELS (CHECKER_SIZE * CHECKER_SIZE)
   u8 checker_data[CHECKER_PIXELS * 4] = {
-      255, 0, 255, 255, // Pink (top-left)
-      0,   0, 0,   255, // Black (top-right)
-      0,   0, 0,   255, // Black (bottom-left)
-      255, 0, 255, 255, // Pink (bottom-right)
+      255, 0, 255, 255, 0, 0, 0, 255, 0, 0, 0, 255, 255, 0, 255, 255,
   };
 
-  // 3. Create the texture synchronously (blocking, but it's tiny)
   struct butter_texture default_texture = butter_create_texture(
       context, CHECKER_SIZE, CHECKER_SIZE, VK_FORMAT_R8G8B8A8_SRGB,
-      checker_data, sizeof(checker_data),
-      default_sampler // The sampler is now owned by the texture
-  );
+      checker_data, sizeof(checker_data), default_sampler);
 
   if (default_texture.image == VK_NULL_HANDLE) {
     butter_log_fatal("Failed to create default fallback texture");
@@ -358,8 +351,7 @@ butter_context_t *butter_create(arena_t *arena, vk_instance_t instance,
       butter_allocate_descriptor_set(context, context->texture_descriptor_pool,
                                      context->texture_descriptor_set_layout);
 
-  butter_update_descriptor_image(context, &default_desc,
-                                 0, // binding
+  butter_update_descriptor_image(context, &default_desc, 0,
                                  default_texture.view, default_texture.sampler);
   default_texture.descriptor_set = default_desc;
 

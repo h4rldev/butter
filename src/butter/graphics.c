@@ -879,3 +879,24 @@ butter_allocation_t butter_alloc_vertices(butter_t *butter, u32 vertex_count,
 
   return allocation;
 }
+
+butter_allocation_t butter_alloc_indices(butter_t *butter, u32 index_count,
+                                         vk_index_type_t index_type) {
+  u32 stride = 0;
+  switch (index_type) {
+  case VK_INDEX_TYPE_UINT16:
+    stride = sizeof(u16);
+    break;
+  case VK_INDEX_TYPE_UINT32:
+    stride = sizeof(u32);
+    break;
+  case VK_INDEX_TYPE_UINT8:
+    stride = sizeof(u8);
+    break;
+  default:
+    butter_log_error("Unknown index type: %d", index_type);
+    return (butter_allocation_t){0};
+  }
+
+  return butter_alloc_vertices(butter, index_count, stride);
+}

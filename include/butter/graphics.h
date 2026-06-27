@@ -65,5 +65,7 @@ void butter_submit_draws(butter_t *butter, const butter_draw_cmd_t *cmds,
 
 butter_allocation_t butter_alloc_vertices(butter_t *butter, u32 vertex_count,
                                           u32 stride);
+butter_allocation_t butter_alloc_indices(butter_t *butter, u32 index_count,
+                                         vk_index_type_t index_type);
 
 #endif // !BUTTER_GRAPHICS_H

@@ -207,25 +207,35 @@ vk_result_t butter_end_frame(arena_t *arena, butter_t *butter,
 
 void butter_resize(butter_t *butter, u32 width, u32 height) {
   butter_log_debug("Resizing butter surface window");
-  vk_command_pool_create_info_t pool_info = {0};
-  pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-  pool_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-  pool_info.queueFamilyIndex = butter->queue_family;
+  vk_result_t res;
 
-  vk_result_t res = vkDeviceWaitIdle(butter->device);
-  if (res != VK_SUCCESS) {
-    butter_log_error("Could not wait for device idle");
-    return;
+  if (butter->available_vulkan_features & BUTTER_FEATURE_TIMELINE_SEMAPHORE) {
+    u64 last_value = butter->timeline_value;
+    if (last_value > 0) {
+      VkSemaphoreWaitInfo wait_info = {0};
+      wait_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
+      wait_info.semaphoreCount = 1;
+      wait_info.pSemaphores = &butter->timeline_semaphore;
+      wait_info.pValues = &last_value;
+      if ((res = vkWaitSemaphores(butter->device, &wait_info, UINT64_MAX)) !=
+          VK_SUCCESS) {
+        butter_log_error("Could not wait for timeline semaphore");
+        return;
+      }
+    }
+  } else {
+    if ((res = vkDeviceWaitIdle(butter->device)) != VK_SUCCESS) {
+      butter_log_error("Could not wait for device idle");
+      return;
+    }
   }
 
-  vkDestroyCommandPool(butter->device, butter->cmd_pool, null);
+  vkFreeCommandBuffers(butter->device, butter->cmd_pool, butter->image_count,
+                       butter->cmds);
+
   if ((res = butter_update_surface(butter, BUTTER_LATENCY_CAP, width,
                                    height)) != VK_SUCCESS)
     butter_log_error("Could not update surface: %d", res);
-
-  if ((res = vkCreateCommandPool(butter->device, &pool_info, null,
-                                 &butter->cmd_pool)) != VK_SUCCESS)
-    butter_log_error("Could not create command pool: %d", res);
 
   vk_command_buffer_allocate_info_t alloc_info = {0};
   alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;

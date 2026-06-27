@@ -29,11 +29,6 @@ void butter_destroy_swapchain_resources(butter_context_t *context) {
     context->image_count = 0;
     context->image_views = null;
   }
-
-  if (context->render_pass) {
-    vkDestroyRenderPass(context->device, context->render_pass, null);
-    context->render_pass = VK_NULL_HANDLE;
-  }
 }
 
 b32 butter_create_swapchain(butter_context_t *context, u32 latency_cap,
@@ -212,11 +207,12 @@ b32 butter_create_swapchain(butter_context_t *context, u32 latency_cap,
   render_pass_create_info.subpassCount = 1;
   render_pass_create_info.pSubpasses = &subpass;
 
-  if ((res = vkCreateRenderPass(context->device, &render_pass_create_info, null,
-                                &context->render_pass)) != VK_SUCCESS) {
-    butter_log_error("Could not create render pass: %d", res);
-    return false;
-  }
+  if (!context->render_pass)
+    if ((res = vkCreateRenderPass(context->device, &render_pass_create_info,
+                                  null, &context->render_pass)) != VK_SUCCESS) {
+      butter_log_error("Could not create render pass: %d", res);
+      return false;
+    }
 
   if (!context->framebuffers)
     context->framebuffers = arena_alloc_zeroed(context->arena, vk_framebuffer_t,

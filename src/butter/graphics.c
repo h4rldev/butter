@@ -1,7 +1,9 @@
 #include <htils/basictypes.h>
 
+#include <butter/graphics.h>
 #include <butter/internal/types.h>
 #include <butter/log.h>
+#include <butter/texture.h>
 #include <butter/types.h>
 #include <vulkan/vulkan_core.h>
 
@@ -835,6 +837,18 @@ void butter_submit_draws(butter_t *butter, const butter_draw_cmd_t *cmds,
       vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                               draw->pipeline.layout, 0,
                               draw->descriptor_set_count, sets, 0, null);
+    } else {
+      butter_texture_t *tex = null;
+      if (draw->texture_id != 0)
+        tex = butter_texture_get(butter, draw->texture_id);
+
+      if (!tex || !butter_texture_is_ready(tex))
+        tex = butter_texture_get(butter, 0);
+
+      if (tex)
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                draw->pipeline.layout, 0, 1,
+                                &tex->descriptor_set.set, 0, null);
     }
 
     if (draw->index_buffer && draw->index_count > 0)

@@ -202,6 +202,11 @@ struct butter_buffer {
   void *mapped;
 };
 
+struct butter_descriptor_set {
+  vk_descriptor_set_t set;
+  vk_descriptor_set_layout_t layout;
+};
+
 struct butter_texture {
   vk_image_t image;
   vk_image_view_t view;
@@ -209,10 +214,25 @@ struct butter_texture {
   u32 width;
   u32 height;
   vk_format_t format;
+  struct butter_descriptor_set descriptor_set;
+  vk_sampler_t sampler;
 
-  b32 is_upload;
-  b32 upload_ready;
-  b32 upload_failed;
+  atomic_b32 is_upload;
+  atomic_b32 upload_ready;
+  atomic_b32 upload_failed;
+  atomic_b32 upload_cancelled;
+};
+
+struct butter_texture_registry_entry {
+  struct butter_texture texture;
+  u32 id;
+};
+
+struct butter_texture_registry {
+  struct butter_texture_registry_entry *entries;
+  u32 capacity;
+  u32 count;
+  u32 next_id;
 };
 
 typedef struct {
@@ -220,6 +240,7 @@ typedef struct {
   struct butter_buffer staging_buffer;
   b32 ready;
   b32 failed;
+  b32 cancelled;
 } butter_upload_t;
 
 typedef void (*butter_draw_callback_t)(vk_command_buffer_t cmd,
@@ -299,6 +320,10 @@ typedef struct butter_context {
   struct butter_buffer *dynamic_vbos;
   u32 dynamic_vbo_size;
   u64 dynamic_vbo_offset;
+
+  struct butter_texture_registry texture_registry;
+  vk_descriptor_pool_t texture_descriptor_pool;
+  vk_descriptor_set_layout_t texture_descriptor_set_layout;
 } butter_context_t;
 
 #endif // !BUTTER_INTERNAL_TYPES_H

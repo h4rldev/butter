@@ -127,11 +127,7 @@ typedef struct {
 } butter_pipeline_t;
 
 typedef struct butter_buffer butter_buffer_t;
-
-typedef struct {
-  vk_descriptor_set_t set;
-  vk_descriptor_set_layout_t layout;
-} butter_descriptor_set_t;
+typedef struct butter_descriptor_set butter_descriptor_set_t;
 
 typedef struct {
   vk_buffer_t buffer;
@@ -152,6 +148,8 @@ typedef struct {
 } butter_sampler_desc_t;
 
 typedef struct butter_texture butter_texture_t;
+typedef struct butter_texture_registry butter_texture_registry_t;
+typedef struct butter_texture_registry_entry butter_texture_registry_entry_t;
 
 typedef struct {
   butter_pipeline_t pipeline;
@@ -163,6 +161,7 @@ typedef struct {
   vk_index_type_t index_type;
   const butter_descriptor_set_t *descriptor_sets;
   u32 descriptor_set_count;
+  u32 texture_id;
 } butter_draw_cmd_t;
 
 #endif // !BUTTER_TYPES_H

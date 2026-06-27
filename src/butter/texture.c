@@ -3,6 +3,7 @@
 #include <butter/graphics.h>
 #include <butter/internal/types.h>
 #include <butter/log.h>
+#include <butter/texture.h>
 #include <butter/types.h>
 #include <threads.h>
 
@@ -25,11 +26,42 @@ static i32 find_memory_type(vk_physical_device_t physical_device,
 
 butter_texture_t butter_create_texture(butter_t *butter, u32 width, u32 height,
                                        vk_format_t format, const void *data,
-                                       u64 data_size) {
+                                       u64 data_size, vk_sampler_t sampler) {
+  if (!butter) {
+    butter_log_error("Butter instance not initialized");
+    return (butter_texture_t){0};
+  }
+
+  if (!data) {
+    butter_log_error("No data provided");
+    return (butter_texture_t){0};
+  }
+
+  if (data_size == 0) {
+    butter_log_error("No data size provided");
+    return (butter_texture_t){0};
+  }
+
+  if (width == 0 || height == 0) {
+    butter_log_error("Invalid texture dimensions");
+    return (butter_texture_t){0};
+  }
+
+  if (format == VK_FORMAT_UNDEFINED) {
+    butter_log_error("Invalid texture format");
+    return (butter_texture_t){0};
+  }
+
+  if (sampler == VK_NULL_HANDLE) {
+    butter_log_error("Invalid sampler");
+    return (butter_texture_t){0};
+  }
+
   butter_texture_t texture = {0};
   texture.width = width;
   texture.height = height;
   texture.format = format;
+  texture.sampler = sampler;
 
   vk_image_create_info_t image_info = {0};
   image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -270,6 +302,22 @@ butter_texture_t butter_create_texture(butter_t *butter, u32 width, u32 height,
     return texture;
   }
 
+  butter_descriptor_set_t descriptor_set =
+      butter_allocate_descriptor_set(butter, butter->texture_descriptor_pool,
+                                     butter->texture_descriptor_set_layout);
+
+  if (descriptor_set.set == VK_NULL_HANDLE) {
+    butter_log_error("Could not allocate descriptor set");
+    vkDestroyImage(butter->device, texture.image, null);
+    vkFreeMemory(butter->device, texture.memory, null);
+    vkDestroyImageView(butter->device, texture.view, null);
+    return texture;
+  }
+
+  butter_update_descriptor_image(butter, &descriptor_set, 0, texture.view,
+                                 texture.sampler);
+  texture.descriptor_set = descriptor_set;
+
   return texture;
 }
 
@@ -283,6 +331,11 @@ void butter_destroy_texture(butter_t *butter, butter_texture_t *texture) {
     vkDestroyImage(butter->device, texture->image, null);
   if (texture->memory)
     vkFreeMemory(butter->device, texture->memory, null);
+  if (texture->descriptor_set.layout)
+    vkDestroyDescriptorSetLayout(butter->device, texture->descriptor_set.layout,
+                                 null);
+  if (texture->sampler)
+    vkDestroySampler(butter->device, texture->sampler, null);
 
   texture->view = VK_NULL_HANDLE;
   texture->image = VK_NULL_HANDLE;
@@ -309,6 +362,14 @@ static int butter_upload_thread(void *userdata) {
 
     mtx_unlock(&butter->upload_mutex);
 
+    if (upload->cancelled || atomic_load(&upload->texture.upload_cancelled)) {
+      butter_destroy_buffer(butter, &upload->staging_buffer);
+      atomic_store(&upload->texture.upload_failed, true);
+      atomic_store(&upload->texture.upload_ready, false);
+      atomic_store(&upload->texture.upload_cancelled, false);
+      continue;
+    }
+
     vk_command_buffer_t cmd;
     vk_command_buffer_allocate_info_t alloc_info = {0};
     alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
@@ -325,7 +386,7 @@ static int butter_upload_thread(void *userdata) {
       vkDestroyImageView(butter->device, upload->texture.view, null);
       vkFreeMemory(butter->device, upload->texture.memory, null);
       upload->failed = true;
-      upload->texture.upload_failed = true;
+      atomic_store(&upload->texture.upload_failed, true);
       mtx_unlock(&butter->upload_mutex);
       continue;
     }
@@ -372,7 +433,17 @@ static int butter_upload_thread(void *userdata) {
       dependency_info.pImageMemoryBarriers = &barrier_to_dst;
       vkCmdPipelineBarrier2(cmd, &dependency_info);
 #else
+      mtx_lock(&butter->upload_mutex);
       butter_log_fatal("How did you get here?");
+      butter_destroy_buffer(butter, &upload->staging_buffer);
+      vkDestroyImage(butter->device, upload->texture.image, null);
+      vkDestroyImageView(butter->device, upload->texture.view, null);
+      vkFreeCommandBuffers(butter->device, butter->upload_pool_async, 1, &cmd);
+      vkFreeMemory(butter->device, upload->texture.memory, null);
+
+      upload->failed = true;
+      atomic_store(&upload->texture.upload_failed, true);
+      mtx_unlock(&butter->upload_mutex);
       return texture;
 #endif
     }
@@ -432,12 +503,46 @@ static int butter_upload_thread(void *userdata) {
       dependency_info.pImageMemoryBarriers = &barrier_to_shader;
       vkCmdPipelineBarrier2(cmd, &dependency_info);
 #else
+      mtx_lock(&butter->upload_mutex);
       butter_log_fatal("How did you get here?");
+      butter_destroy_buffer(butter, &upload->staging_buffer);
+      vkDestroyImage(butter->device, upload->texture.image, null);
+      vkDestroyImageView(butter->device, upload->texture.view, null);
+      vkFreeCommandBuffers(butter->device, butter->upload_pool_async, 1, &cmd);
+      vkFreeMemory(butter->device, upload->texture.memory, null);
+
+      upload->failed = true;
+      atomic_store(&upload->texture.upload_failed, true);
+      mtx_unlock(&butter->upload_mutex);
       return texture;
 #endif
     }
 
     vkEndCommandBuffer(cmd);
+
+    butter_descriptor_set_t descriptor_set =
+        butter_allocate_descriptor_set(butter, butter->texture_descriptor_pool,
+                                       butter->texture_descriptor_set_layout);
+    if (descriptor_set.set == VK_NULL_HANDLE) {
+      mtx_lock(&butter->upload_mutex);
+      butter_log_error("Could not allocate descriptor set");
+      butter_destroy_buffer(butter, &upload->staging_buffer);
+      vkDestroyImage(butter->device, upload->texture.image, null);
+      vkDestroyImageView(butter->device, upload->texture.view, null);
+      vkFreeCommandBuffers(butter->device, butter->upload_pool_async, 1, &cmd);
+      vkFreeMemory(butter->device, upload->texture.memory, null);
+
+      upload->failed = true;
+      atomic_store(&upload->texture.upload_failed, true);
+      mtx_unlock(&butter->upload_mutex);
+      continue;
+    }
+
+    butter_update_descriptor_image(butter, &descriptor_set, 0,
+                                   upload->texture.view,
+                                   upload->texture.sampler);
+
+    upload->texture.descriptor_set = descriptor_set;
 
     vk_fence_t fence;
     vk_fence_create_info_t fence_info = {0};
@@ -454,7 +559,7 @@ static int butter_upload_thread(void *userdata) {
       vkFreeMemory(butter->device, upload->texture.memory, null);
 
       upload->failed = true;
-      upload->texture.upload_failed = true;
+      atomic_store(&upload->texture.upload_failed, true);
       mtx_unlock(&butter->upload_mutex);
       continue;
     }
@@ -481,7 +586,7 @@ static int butter_upload_thread(void *userdata) {
       vkFreeCommandBuffers(butter->device, butter->upload_pool_async, 1, &cmd);
       vkFreeMemory(butter->device, upload->texture.memory, null);
       upload->failed = true;
-      upload->texture.upload_failed = true;
+      atomic_store(&upload->texture.upload_failed, true);
       mtx_unlock(&butter->upload_mutex);
       continue;
     }
@@ -493,15 +598,16 @@ static int butter_upload_thread(void *userdata) {
     butter_destroy_buffer(butter, &upload->staging_buffer);
 
     upload->ready = true;
-    upload->texture.upload_ready = true;
-    upload->texture.upload_failed = false;
+    atomic_store(&upload->texture.upload_ready, true);
+    atomic_store(&upload->texture.upload_failed, false);
+    atomic_store(&upload->texture.upload_cancelled, false);
     mtx_unlock(&butter->upload_mutex);
   }
 
   return 0;
 }
 
-void butter_init_upload(butter_t *butter, u32 queue_cap) {
+void butter_init_texture_upload(butter_t *butter, u32 queue_cap) {
   vk_command_pool_create_info_t pool_info = {0};
   pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
   pool_info.queueFamilyIndex = butter->queue_family;
@@ -527,16 +633,34 @@ void butter_init_upload(butter_t *butter, u32 queue_cap) {
   thrd_create(&butter->upload_thread, butter_upload_thread, butter);
 }
 
+void butter_stop_texture_uploads(butter_t *butter) {
+  mtx_lock(&butter->upload_mutex);
+  butter->upload_thread_running = false;
+  cnd_signal(&butter->upload_ready);
+  mtx_unlock(&butter->upload_mutex);
+
+  thrd_join(butter->upload_thread, null);
+
+  mtx_destroy(&butter->upload_mutex);
+  cnd_destroy(&butter->upload_ready);
+
+  if (butter->upload_pool_async)
+    vkDestroyCommandPool(butter->device, butter->upload_pool_async, null);
+}
+
 butter_texture_t butter_submit_texture_upload(butter_t *butter, u32 width,
                                               u32 height, vk_format_t format,
-                                              const void *data, u64 data_size) {
+                                              const void *data, u64 data_size,
+                                              vk_sampler_t sampler) {
   butter_texture_t texture = {0};
   texture.width = width;
   texture.height = height;
   texture.format = format;
-  texture.is_upload = true;
-  texture.upload_ready = false;
-  texture.upload_failed = false;
+  texture.sampler = sampler;
+  atomic_store(&texture.is_upload, true);
+  atomic_store(&texture.upload_ready, false);
+  atomic_store(&texture.upload_failed, false);
+  atomic_store(&texture.upload_cancelled, false);
 
   vk_image_create_info_t image_info = {0};
   image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -638,21 +762,92 @@ butter_texture_t butter_submit_texture_upload(butter_t *butter, u32 width,
   return texture;
 }
 
-b32 butter_texture_is_ready(const butter_texture_t *texture) {
-  return texture->is_upload && texture->upload_ready && !texture->upload_failed;
+void butter_stop_texture_upload(butter_t *butter, butter_texture_t *texture) {
+  if (!butter || !texture)
+    return;
+
+  mtx_lock(&butter->upload_mutex);
+
+  u32 idx = butter->upload_queue_head;
+  while (idx != butter->upload_queue_tail) {
+    butter_upload_t *upload = &butter->upload_queue[idx];
+
+    if (upload->texture.image == texture->image) {
+      upload->cancelled = true;
+      atomic_store(&upload->texture.upload_cancelled, true);
+      butter_log_debug("Cancelled upload for texture (image=%p)",
+                       (void *)texture->image);
+      break;
+    }
+
+    idx = (idx + 1) % butter->upload_queue_cap;
+  }
+
+  mtx_unlock(&butter->upload_mutex);
 }
 
-void butter_stop_uploads(butter_t *butter) {
-  mtx_lock(&butter->upload_mutex);
-  butter->upload_thread_running = false;
-  cnd_signal(&butter->upload_ready);
-  mtx_unlock(&butter->upload_mutex);
+b32 butter_texture_is_ready(const butter_texture_t *texture) {
+  b32 is_upload = atomic_load(&texture->is_upload);
+  b32 upload_ready = atomic_load(&texture->upload_ready);
+  b32 upload_failed = atomic_load(&texture->upload_failed);
 
-  thrd_join(butter->upload_thread, null);
+  return is_upload && upload_ready && !upload_failed;
+}
 
-  mtx_destroy(&butter->upload_mutex);
-  cnd_destroy(&butter->upload_ready);
+i32 butter_texture_register(butter_t *butter, butter_texture_t texture) {
+  if (butter->texture_registry.count >= butter->texture_registry.capacity) {
+    butter_log_error("Texture registry is full");
+    return -1;
+  }
 
-  if (butter->upload_pool_async)
-    vkDestroyCommandPool(butter->device, butter->upload_pool_async, null);
+  u32 id = butter->texture_registry.next_id++;
+  u32 index = butter->texture_registry.count;
+  butter->texture_registry.entries[index].id = id;
+  butter->texture_registry.entries[index].texture = texture;
+  butter->texture_registry.count++;
+
+  return id;
+}
+
+butter_texture_t *butter_texture_get(butter_t *butter, i32 id) {
+  if (id < 0) {
+    butter_log_error("Invalid texture ID");
+    return null;
+  }
+
+  for (u32 i = 0; i < butter->texture_registry.count; i++) {
+    if (butter->texture_registry.entries[i].id == (u32)id)
+      return &butter->texture_registry.entries[i].texture;
+  }
+
+  butter_log_warning("Can't get texture: Texture ID not found");
+  return null;
+}
+
+void butter_texture_deregister(butter_t *butter, i32 id) {
+  if (id < 0) {
+    butter_log_error("Invalid texture ID");
+    return;
+  }
+
+  if (id == 0) {
+    butter_log_warning("Can't deregister texture 0");
+    return;
+  }
+
+  for (u32 i = 0; i < butter->texture_registry.count; i++) {
+    if (butter->texture_registry.entries[i].id == (u32)id) {
+      butter_texture_t *texture = &butter->texture_registry.entries[i].texture;
+
+      butter_stop_texture_upload(butter, texture);
+      butter_destroy_texture(butter, texture);
+
+      butter->texture_registry.entries[i] =
+          butter->texture_registry.entries[butter->texture_registry.count - 1];
+      butter->texture_registry.count--;
+      return;
+    }
+  }
+
+  butter_log_warning("Can't deregister: Texture ID not found");
 }

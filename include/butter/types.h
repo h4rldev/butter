@@ -163,6 +163,8 @@ typedef struct {
   const butter_descriptor_set_t *descriptor_sets;
   u32 descriptor_set_count;
   u32 texture_id;
+  vk_rect2d_t scissor;
+  b32 scissor_enabled;
 } butter_draw_cmd_t;
 
 #endif // !BUTTER_TYPES_H

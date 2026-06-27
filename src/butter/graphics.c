@@ -820,6 +820,16 @@ void butter_submit_draws(butter_t *butter, const butter_draw_cmd_t *cmds,
   for (u32 i = 0; i < count; i++) {
     const butter_draw_cmd_t *draw = &cmds[i];
 
+    if (draw->scissor_enabled)
+      vkCmdSetScissor(cmd, 0, 1, &draw->scissor);
+    else {
+      vk_rect2d_t scissor = {
+          .offset = {0, 0},
+          .extent = butter->extent,
+      };
+      vkCmdSetScissor(cmd, 0, 1, &scissor);
+    }
+
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                       draw->pipeline.pipeline);
     if (draw->vertex_buffer) {

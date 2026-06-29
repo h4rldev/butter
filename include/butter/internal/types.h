@@ -1,16 +1,23 @@
 #ifndef BUTTER_INTERNAL_TYPES_H
 #define BUTTER_INTERNAL_TYPES_H
 
-#include <vulkan/vulkan_core.h>
+#include <vulkan/vulkan.h>
+
+#ifdef BUTTER_X11
 #include <xcb/xcb.h>
+
+#include <vulkan/vulkan_xcb.h>
+#endif
+
+#ifdef BUTTER_WAYLAND
+#include <wayland-client.h>
+
+#include <vulkan/vulkan_wayland.h>
+#endif
 
 #include <htils/arena.h>
 #include <htils/atomic_types.h>
 #include <htils/darray.h>
-
-#include <vulkan/vulkan.h>
-#include <vulkan/vulkan_wayland.h>
-#include <vulkan/vulkan_xcb.h>
 
 #include <threads.h>
 
@@ -27,8 +34,13 @@ typedef VkInstance vk_instance_t;
 typedef VkInstanceCreateInfo vk_instance_create_info_t;
 typedef VkApplicationInfo vk_application_info_t;
 typedef VkSurfaceKHR vk_surface_khr_t;
+
+#ifdef BUTTER_X11
 typedef VkXcbSurfaceCreateInfoKHR vk_xcb_surface_create_info_khr_t;
+#endif
+#ifdef BUTTER_WAYLAND
 typedef VkWaylandSurfaceCreateInfoKHR vk_wayland_surface_create_info_khr_t;
+#endif
 typedef VkPhysicalDevice vk_physical_device_t;
 typedef VkPhysicalDeviceProperties vk_physical_device_properties_t;
 typedef VkPhysicalDeviceMemoryProperties vk_physical_device_memory_properties_t;

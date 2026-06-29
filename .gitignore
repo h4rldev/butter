@@ -1,5 +1,7 @@
 .cache
 .direnv
+result
+**/result/**
 
 bin
 lib

@@ -66,8 +66,8 @@ clean:
     ! [[ -d {{ bin }} ]] || rm -fr {{ bin }}
     ! [[ -d {{ lib }} ]] || rm -fr {{ lib }}
 
-bear:
-    bear -- just compile-butter debug force
+bear platform="wayland":
+    bear -- just compile-butter {{ platform }} debug force
 
 ## Compile
 

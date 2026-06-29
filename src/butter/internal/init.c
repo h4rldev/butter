@@ -15,12 +15,17 @@
 
 #include <butter/log.h>
 
-#include <vulkan/vulkan_core.h>
-#include <wayland-client.h>
-#include <xcb/xcb.h>
-
-#include <vulkan/vulkan_wayland.h>
+#ifdef BUTTER_X11
 #include <vulkan/vulkan_xcb.h>
+#include <xcb/xcb.h>
+#endif
+
+#ifdef BUTTER_WAYLAND
+#include <vulkan/vulkan_wayland.h>
+#include <wayland-client.h>
+#endif
+
+#include <vulkan/vulkan_core.h>
 
 #ifndef BUTTER_MAX_TEXTURES
 #define BUTTER_MAX_TEXTURES (1024)
@@ -34,6 +39,7 @@ create_platform_surface(vk_instance_t instance,
 
   switch (info->backend) {
   case BUTTER_BACKEND_XCB: {
+#ifdef BUTTER_X11
     vk_xcb_surface_create_info_khr_t xcb_info = {0};
     xcb_info.sType = VK_STRUCTURE_TYPE_XCB_SURFACE_CREATE_INFO_KHR;
     xcb_info.connection = (xcb_connection_t *)info->display;
@@ -42,8 +48,13 @@ create_platform_surface(vk_instance_t instance,
     if ((res = vkCreateXcbSurfaceKHR(instance, &xcb_info, null, &surface)) !=
         VK_SUCCESS)
       butter_log_error("Could not create xcb surface");
+#else
+    butter_log_fatal("Butter was not compiled with X11 support");
+    return VK_NULL_HANDLE;
+#endif
   } break;
   case BUTTER_BACKEND_WAYLAND: {
+#ifdef BUTTER_WAYLAND
     vk_wayland_surface_create_info_khr_t wayland_info = {0};
     wayland_info.sType = VK_STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR;
     wayland_info.display = (struct wl_display *)info->display;
@@ -52,6 +63,10 @@ create_platform_surface(vk_instance_t instance,
     if ((res = vkCreateWaylandSurfaceKHR(instance, &wayland_info, null,
                                          &surface)) != VK_SUCCESS)
       butter_log_error("Could not create wayland surface");
+#else
+    butter_log_fatal("Butter was not compiled with Wayland support");
+    return VK_NULL_HANDLE;
+#endif
   } break;
   }
 

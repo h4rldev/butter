@@ -810,13 +810,6 @@ void butter_submit_draws(butter_t *butter, const butter_draw_cmd_t *cmds,
 
   vkCmdSetViewport(cmd, 0, 1, &viewport);
 
-  vk_rect2d_t scissor = {
-      .offset = {0, 0},
-      .extent = butter->extent,
-  };
-
-  vkCmdSetScissor(cmd, 0, 1, &scissor);
-
   for (u32 i = 0; i < count; i++) {
     const butter_draw_cmd_t *draw = &cmds[i];
 
@@ -836,9 +829,6 @@ void butter_submit_draws(butter_t *butter, const butter_draw_cmd_t *cmds,
       vk_device_size_t offset = draw->vertex_offset;
       vkCmdBindVertexBuffers(cmd, 0, 1, &draw->vertex_buffer, &offset);
     }
-
-    if (draw->index_buffer)
-      vkCmdBindIndexBuffer(cmd, draw->index_buffer, 0, draw->index_type);
 
     if (draw->pipeline.uses_descriptors) {
       if (draw->descriptor_sets && draw->descriptor_set_count > 0) {
@@ -865,9 +855,11 @@ void butter_submit_draws(butter_t *butter, const butter_draw_cmd_t *cmds,
       }
     }
 
-    if (draw->index_buffer && draw->index_count > 0)
+    if (draw->index_buffer && draw->index_count > 0) {
+      vkCmdBindIndexBuffer(cmd, draw->index_buffer, draw->index_offset,
+                           draw->index_type);
       vkCmdDrawIndexed(cmd, draw->index_count, 1, 0, 0, 0);
-    else
+    } else
       vkCmdDraw(cmd, draw->vertex_count, 1, 0, 0);
   }
 }

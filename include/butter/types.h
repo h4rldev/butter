@@ -159,6 +159,7 @@ typedef struct {
   u32 vertex_offset;
   vk_buffer_t index_buffer;
   u32 index_count;
+  u32 index_offset;
   vk_index_type_t index_type;
   const butter_descriptor_set_t *descriptor_sets;
   u32 descriptor_set_count;

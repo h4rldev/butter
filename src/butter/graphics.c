@@ -825,10 +825,9 @@ void butter_submit_draws(butter_t *butter, const butter_draw_cmd_t *cmds,
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                       draw->pipeline.pipeline);
-    if (draw->vertex_buffer) {
-      vk_device_size_t offset = draw->vertex_offset;
-      vkCmdBindVertexBuffers(cmd, 0, 1, &draw->vertex_buffer, &offset);
-    }
+    if (draw->vertex_buffer)
+      vkCmdBindVertexBuffers(cmd, 0, 1, &draw->vertex_buffer,
+                             &draw->vertex_offset);
 
     if (draw->pipeline.uses_descriptors) {
       if (draw->descriptor_sets && draw->descriptor_set_count > 0) {
@@ -856,6 +855,7 @@ void butter_submit_draws(butter_t *butter, const butter_draw_cmd_t *cmds,
     }
 
     if (draw->index_buffer && draw->index_count > 0) {
+
       vkCmdBindIndexBuffer(cmd, draw->index_buffer, draw->index_offset,
                            draw->index_type);
       vkCmdDrawIndexed(cmd, draw->index_count, 1, 0, 0, 0);

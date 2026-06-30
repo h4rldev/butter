@@ -325,19 +325,21 @@ void butter_destroy_texture(butter_t *butter, butter_texture_t *texture) {
   if (!texture || !butter)
     return;
 
+  butter_log_debug("Deleting View if available");
   if (texture->view)
     vkDestroyImageView(butter->device, texture->view, null);
+
+  butter_log_debug("Deleting Image if available");
   if (texture->image)
     vkDestroyImage(butter->device, texture->image, null);
+
+  butter_log_debug("Deleting Memory if available");
   if (texture->memory)
     vkFreeMemory(butter->device, texture->memory, null);
-  if (texture->sampler)
-    vkDestroySampler(butter->device, texture->sampler, null);
 
   texture->view = VK_NULL_HANDLE;
   texture->image = VK_NULL_HANDLE;
   texture->memory = VK_NULL_HANDLE;
-  texture->sampler = VK_NULL_HANDLE;
 }
 
 static int butter_upload_thread(void *userdata) {

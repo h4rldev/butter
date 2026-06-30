@@ -643,9 +643,6 @@ void butter_stop_texture_uploads(butter_t *butter) {
 
   mtx_destroy(&butter->upload_mutex);
   cnd_destroy(&butter->upload_ready);
-
-  if (butter->upload_pool_async)
-    vkDestroyCommandPool(butter->device, butter->upload_pool_async, null);
 }
 
 butter_texture_t butter_submit_texture_upload(butter_t *butter, u32 width,

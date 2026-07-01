@@ -1,3 +1,4 @@
+#include <htils/arena.h>
 #include <string.h>
 
 #include <butter/graphics.h>
@@ -24,44 +25,45 @@ static i32 find_memory_type(vk_physical_device_t physical_device,
   return -1;
 }
 
-butter_texture_t butter_create_texture(butter_t *butter, u32 width, u32 height,
-                                       vk_format_t format, const void *data,
-                                       u64 data_size, vk_sampler_t sampler) {
+butter_texture_t *butter_create_texture(butter_t *butter, u32 width, u32 height,
+                                        vk_format_t format, const void *data,
+                                        u64 data_size, vk_sampler_t sampler) {
   if (!butter) {
     butter_log_error("Butter instance not initialized");
-    return (butter_texture_t){0};
+    return null;
   }
 
   if (!data) {
     butter_log_error("No data provided");
-    return (butter_texture_t){0};
+    return null;
   }
 
   if (data_size == 0) {
     butter_log_error("No data size provided");
-    return (butter_texture_t){0};
+    return null;
   }
 
   if (width == 0 || height == 0) {
     butter_log_error("Invalid texture dimensions");
-    return (butter_texture_t){0};
+    return null;
   }
 
   if (format == VK_FORMAT_UNDEFINED) {
     butter_log_error("Invalid texture format");
-    return (butter_texture_t){0};
+    return null;
   }
 
   if (sampler == VK_NULL_HANDLE) {
     butter_log_error("Invalid sampler");
-    return (butter_texture_t){0};
+    return null;
   }
 
-  butter_texture_t texture = {0};
-  texture.width = width;
-  texture.height = height;
-  texture.format = format;
-  texture.sampler = sampler;
+  butter_texture_t *texture =
+      arena_alloc_zeroed(butter->arena, butter_texture_t, 1);
+  texture->width = width;
+  texture->height = height;
+  texture->format = format;
+  texture->sampler = sampler;
 
   vk_image_create_info_t image_info = {0};
   image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -79,19 +81,19 @@ butter_texture_t butter_create_texture(butter_t *butter, u32 width, u32 height,
 
   vk_result_t res;
   if ((res = vkCreateImage(butter->device, &image_info, null,
-                           &texture.image)) != VK_SUCCESS) {
+                           &texture->image)) != VK_SUCCESS) {
     butter_log_error("Could not create image: %d", res);
     return texture;
   }
 
   vk_memory_requirements_t mem_reqs;
-  vkGetImageMemoryRequirements(butter->device, texture.image, &mem_reqs);
+  vkGetImageMemoryRequirements(butter->device, texture->image, &mem_reqs);
   i32 mem_type =
       find_memory_type(butter->physical_device, mem_reqs.memoryTypeBits,
                        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
   if (mem_type == -1) {
     butter_log_error("No device-local memory type for texture");
-    vkDestroyImage(butter->device, texture.image, NULL);
+    vkDestroyImage(butter->device, texture->image, NULL);
     return texture;
   }
 
@@ -101,20 +103,20 @@ butter_texture_t butter_create_texture(butter_t *butter, u32 width, u32 height,
   alloc_info.memoryTypeIndex = mem_type;
 
   if ((res = vkAllocateMemory(butter->device, &alloc_info, null,
-                              &texture.memory)) != VK_SUCCESS) {
+                              &texture->memory)) != VK_SUCCESS) {
     butter_log_error("Could not allocate memory for texture: %d", res);
-    vkDestroyImage(butter->device, texture.image, null);
+    vkDestroyImage(butter->device, texture->image, null);
     return texture;
   }
 
-  vkBindImageMemory(butter->device, texture.image, texture.memory, 0);
+  vkBindImageMemory(butter->device, texture->image, texture->memory, 0);
 
   butter_buffer_t staging_buffer = butter_create_buffer(
       butter, data_size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, true);
   if (staging_buffer.handle == VK_NULL_HANDLE) {
     butter_log_error("Could not create staging buffer");
-    vkDestroyImage(butter->device, texture.image, null);
-    vkFreeMemory(butter->device, texture.memory, null);
+    vkDestroyImage(butter->device, texture->image, null);
+    vkFreeMemory(butter->device, texture->memory, null);
     return texture;
   }
 
@@ -131,8 +133,8 @@ butter_texture_t butter_create_texture(butter_t *butter, u32 width, u32 height,
       VK_SUCCESS) {
     butter_log_error("Could not allocate command buffer: %d", res);
     butter_destroy_buffer(butter, &staging_buffer);
-    vkDestroyImage(butter->device, texture.image, null);
-    vkFreeMemory(butter->device, texture.memory, null);
+    vkDestroyImage(butter->device, texture->image, null);
+    vkFreeMemory(butter->device, texture->memory, null);
     return texture;
   }
 
@@ -148,7 +150,7 @@ butter_texture_t butter_create_texture(butter_t *butter, u32 width, u32 height,
     barrier_to_dst.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     barrier_to_dst.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
     barrier_to_dst.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    barrier_to_dst.image = texture.image;
+    barrier_to_dst.image = texture->image;
     barrier_to_dst.subresourceRange = (vk_image_subresource_range_t){0};
     barrier_to_dst.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     barrier_to_dst.subresourceRange.levelCount = 1;
@@ -167,7 +169,7 @@ butter_texture_t butter_create_texture(butter_t *butter, u32 width, u32 height,
     barrier_to_dst.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
     barrier_to_dst.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     barrier_to_dst.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-    barrier_to_dst.image = texture.image;
+    barrier_to_dst.image = texture->image;
     barrier_to_dst.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     barrier_to_dst.subresourceRange.levelCount = 1;
     barrier_to_dst.subresourceRange.layerCount = 1;
@@ -195,7 +197,7 @@ butter_texture_t butter_create_texture(butter_t *butter, u32 width, u32 height,
   region.imageOffset = (vk_offset3d_t){0, 0, 0};
   region.imageExtent = (vk_extent3d_t){width, height, 1};
 
-  vkCmdCopyBufferToImage(cmd, staging_buffer.handle, texture.image,
+  vkCmdCopyBufferToImage(cmd, staging_buffer.handle, texture->image,
                          VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 
   if ((butter->available_vulkan_features & BUTTER_FEATURE_SYNCHRONIZATION_2) ==
@@ -207,7 +209,7 @@ butter_texture_t butter_create_texture(butter_t *butter, u32 width, u32 height,
     barrier_to_shader.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     barrier_to_shader.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
     barrier_to_shader.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-    barrier_to_shader.image = texture.image;
+    barrier_to_shader.image = texture->image;
     barrier_to_shader.subresourceRange = (vk_image_subresource_range_t){0};
     barrier_to_shader.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     barrier_to_shader.subresourceRange.levelCount = 1;
@@ -227,7 +229,7 @@ butter_texture_t butter_create_texture(butter_t *butter, u32 width, u32 height,
     barrier_to_shader.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
     barrier_to_shader.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
     barrier_to_shader.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    barrier_to_shader.image = texture.image;
+    barrier_to_shader.image = texture->image;
     barrier_to_shader.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     barrier_to_shader.subresourceRange.levelCount = 1;
     barrier_to_shader.subresourceRange.layerCount = 1;
@@ -253,9 +255,9 @@ butter_texture_t butter_create_texture(butter_t *butter, u32 width, u32 height,
       VK_SUCCESS) {
     butter_log_error("Could not create fence: %d", res);
     butter_destroy_buffer(butter, &staging_buffer);
-    vkDestroyImage(butter->device, texture.image, null);
+    vkDestroyImage(butter->device, texture->image, null);
     vkFreeCommandBuffers(butter->device, butter->upload_pool_sync, 1, &cmd);
-    vkFreeMemory(butter->device, texture.memory, null);
+    vkFreeMemory(butter->device, texture->memory, null);
     return texture;
   }
 
@@ -273,10 +275,10 @@ butter_texture_t butter_create_texture(butter_t *butter, u32 width, u32 height,
       butter_log_error("Could not wait for fence: %d", res);
 
     butter_destroy_buffer(butter, &staging_buffer);
-    vkDestroyImage(butter->device, texture.image, null);
+    vkDestroyImage(butter->device, texture->image, null);
     vkDestroyFence(butter->device, fence, null);
     vkFreeCommandBuffers(butter->device, butter->upload_pool_sync, 1, &cmd);
-    vkFreeMemory(butter->device, texture.memory, null);
+    vkFreeMemory(butter->device, texture->memory, null);
     return texture;
   }
 
@@ -286,7 +288,7 @@ butter_texture_t butter_create_texture(butter_t *butter, u32 width, u32 height,
 
   vk_image_view_create_info_t image_view_info = {0};
   image_view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-  image_view_info.image = texture.image;
+  image_view_info.image = texture->image;
   image_view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
   image_view_info.format = format;
   image_view_info.subresourceRange = (vk_image_subresource_range_t){0};
@@ -295,10 +297,10 @@ butter_texture_t butter_create_texture(butter_t *butter, u32 width, u32 height,
   image_view_info.subresourceRange.layerCount = 1;
 
   if ((res = vkCreateImageView(butter->device, &image_view_info, null,
-                               &texture.view)) != VK_SUCCESS) {
+                               &texture->view)) != VK_SUCCESS) {
     butter_log_error("Could not create image view: %d", res);
-    vkDestroyImage(butter->device, texture.image, null);
-    vkFreeMemory(butter->device, texture.memory, null);
+    vkDestroyImage(butter->device, texture->image, null);
+    vkFreeMemory(butter->device, texture->memory, null);
     return texture;
   }
 
@@ -308,15 +310,15 @@ butter_texture_t butter_create_texture(butter_t *butter, u32 width, u32 height,
 
   if (descriptor_set.set == VK_NULL_HANDLE) {
     butter_log_error("Could not allocate descriptor set");
-    vkDestroyImage(butter->device, texture.image, null);
-    vkFreeMemory(butter->device, texture.memory, null);
-    vkDestroyImageView(butter->device, texture.view, null);
+    vkDestroyImage(butter->device, texture->image, null);
+    vkFreeMemory(butter->device, texture->memory, null);
+    vkDestroyImageView(butter->device, texture->view, null);
     return texture;
   }
 
-  butter_update_descriptor_image(butter, &descriptor_set, 0, texture.view,
-                                 texture.sampler);
-  texture.descriptor_set = descriptor_set;
+  butter_update_descriptor_image(butter, &descriptor_set, 0, texture->view,
+                                 texture->sampler);
+  texture->descriptor_set = descriptor_set;
 
   return texture;
 }
@@ -362,11 +364,11 @@ static int butter_upload_thread(void *userdata) {
 
     mtx_unlock(&butter->upload_mutex);
 
-    if (upload->cancelled || atomic_load(&upload->texture.upload_cancelled)) {
+    if (upload->cancelled || atomic_load(&upload->texture->upload_cancelled)) {
       butter_destroy_buffer(butter, &upload->staging_buffer);
-      atomic_store(&upload->texture.upload_failed, true);
-      atomic_store(&upload->texture.upload_ready, false);
-      atomic_store(&upload->texture.upload_cancelled, false);
+      atomic_store(&upload->texture->upload_failed, true);
+      atomic_store(&upload->texture->upload_ready, false);
+      atomic_store(&upload->texture->upload_cancelled, false);
       continue;
     }
 
@@ -382,11 +384,11 @@ static int butter_upload_thread(void *userdata) {
       mtx_lock(&butter->upload_mutex);
       butter_log_error("Could not allocate upload command buffer: %d", res);
       butter_destroy_buffer(butter, &upload->staging_buffer);
-      vkDestroyImage(butter->device, upload->texture.image, null);
-      vkDestroyImageView(butter->device, upload->texture.view, null);
-      vkFreeMemory(butter->device, upload->texture.memory, null);
+      vkDestroyImage(butter->device, upload->texture->image, null);
+      vkDestroyImageView(butter->device, upload->texture->view, null);
+      vkFreeMemory(butter->device, upload->texture->memory, null);
       upload->failed = true;
-      atomic_store(&upload->texture.upload_failed, true);
+      atomic_store(&upload->texture->upload_failed, true);
       mtx_unlock(&butter->upload_mutex);
       continue;
     }
@@ -403,7 +405,7 @@ static int butter_upload_thread(void *userdata) {
       barrier_to_dst.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
       barrier_to_dst.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
       barrier_to_dst.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-      barrier_to_dst.image = upload->texture.image;
+      barrier_to_dst.image = upload->texture->image;
       barrier_to_dst.subresourceRange = (vk_image_subresource_range_t){0};
       barrier_to_dst.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
       barrier_to_dst.subresourceRange.levelCount = 1;
@@ -422,7 +424,7 @@ static int butter_upload_thread(void *userdata) {
       barrier_to_dst.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
       barrier_to_dst.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
       barrier_to_dst.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-      barrier_to_dst.image = upload->texture.image;
+      barrier_to_dst.image = upload->texture->image;
       barrier_to_dst.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
       barrier_to_dst.subresourceRange.levelCount = 1;
       barrier_to_dst.subresourceRange.layerCount = 1;
@@ -436,13 +438,13 @@ static int butter_upload_thread(void *userdata) {
       mtx_lock(&butter->upload_mutex);
       butter_log_fatal("How did you get here?");
       butter_destroy_buffer(butter, &upload->staging_buffer);
-      vkDestroyImage(butter->device, upload->texture.image, null);
-      vkDestroyImageView(butter->device, upload->texture.view, null);
+      vkDestroyImage(butter->device, upload->texture->image, null);
+      vkDestroyImageView(butter->device, upload->texture->view, null);
       vkFreeCommandBuffers(butter->device, butter->upload_pool_async, 1, &cmd);
-      vkFreeMemory(butter->device, upload->texture.memory, null);
+      vkFreeMemory(butter->device, upload->texture->memory, null);
 
       upload->failed = true;
-      atomic_store(&upload->texture.upload_failed, true);
+      atomic_store(&upload->texture->upload_failed, true);
       mtx_unlock(&butter->upload_mutex);
       return texture;
 #endif
@@ -450,8 +452,8 @@ static int butter_upload_thread(void *userdata) {
 
     vk_buffer_image_copy_t region = {0};
     region.bufferOffset = 0;
-    region.bufferRowLength = upload->texture.width;
-    region.bufferImageHeight = upload->texture.height;
+    region.bufferRowLength = upload->texture->width;
+    region.bufferImageHeight = upload->texture->height;
     region.imageSubresource = (vk_image_subresource_layers_t){0};
     region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     region.imageSubresource.mipLevel = 0;
@@ -459,10 +461,10 @@ static int butter_upload_thread(void *userdata) {
     region.imageSubresource.layerCount = 1;
     region.imageOffset = (vk_offset3d_t){0, 0, 0};
     region.imageExtent =
-        (vk_extent3d_t){upload->texture.width, upload->texture.height, 1};
+        (vk_extent3d_t){upload->texture->width, upload->texture->height, 1};
 
     vkCmdCopyBufferToImage(cmd, upload->staging_buffer.handle,
-                           upload->texture.image,
+                           upload->texture->image,
                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 
     if ((butter->available_vulkan_features &
@@ -473,7 +475,7 @@ static int butter_upload_thread(void *userdata) {
       barrier_to_shader.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
       barrier_to_shader.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
       barrier_to_shader.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-      barrier_to_shader.image = upload->texture.image;
+      barrier_to_shader.image = upload->texture->image;
       barrier_to_shader.subresourceRange = (vk_image_subresource_range_t){0};
       barrier_to_shader.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
       barrier_to_shader.subresourceRange.levelCount = 1;
@@ -492,7 +494,7 @@ static int butter_upload_thread(void *userdata) {
       barrier_to_shader.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
       barrier_to_shader.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
       barrier_to_shader.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-      barrier_to_shader.image = upload->texture.image;
+      barrier_to_shader.image = upload->texture->image;
       barrier_to_shader.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
       barrier_to_shader.subresourceRange.levelCount = 1;
       barrier_to_shader.subresourceRange.layerCount = 1;
@@ -506,13 +508,13 @@ static int butter_upload_thread(void *userdata) {
       mtx_lock(&butter->upload_mutex);
       butter_log_fatal("How did you get here?");
       butter_destroy_buffer(butter, &upload->staging_buffer);
-      vkDestroyImage(butter->device, upload->texture.image, null);
-      vkDestroyImageView(butter->device, upload->texture.view, null);
+      vkDestroyImage(butter->device, upload->texture->image, null);
+      vkDestroyImageView(butter->device, upload->texture->view, null);
       vkFreeCommandBuffers(butter->device, butter->upload_pool_async, 1, &cmd);
-      vkFreeMemory(butter->device, upload->texture.memory, null);
+      vkFreeMemory(butter->device, upload->texture->memory, null);
 
       upload->failed = true;
-      atomic_store(&upload->texture.upload_failed, true);
+      atomic_store(&upload->texture->upload_failed, true);
       mtx_unlock(&butter->upload_mutex);
       return texture;
 #endif
@@ -527,22 +529,22 @@ static int butter_upload_thread(void *userdata) {
       mtx_lock(&butter->upload_mutex);
       butter_log_error("Could not allocate descriptor set");
       butter_destroy_buffer(butter, &upload->staging_buffer);
-      vkDestroyImage(butter->device, upload->texture.image, null);
-      vkDestroyImageView(butter->device, upload->texture.view, null);
+      vkDestroyImage(butter->device, upload->texture->image, null);
+      vkDestroyImageView(butter->device, upload->texture->view, null);
       vkFreeCommandBuffers(butter->device, butter->upload_pool_async, 1, &cmd);
-      vkFreeMemory(butter->device, upload->texture.memory, null);
+      vkFreeMemory(butter->device, upload->texture->memory, null);
 
       upload->failed = true;
-      atomic_store(&upload->texture.upload_failed, true);
+      atomic_store(&upload->texture->upload_failed, true);
       mtx_unlock(&butter->upload_mutex);
       continue;
     }
 
     butter_update_descriptor_image(butter, &descriptor_set, 0,
-                                   upload->texture.view,
-                                   upload->texture.sampler);
+                                   upload->texture->view,
+                                   upload->texture->sampler);
 
-    upload->texture.descriptor_set = descriptor_set;
+    upload->texture->descriptor_set = descriptor_set;
 
     vk_fence_t fence;
     vk_fence_create_info_t fence_info = {0};
@@ -553,13 +555,13 @@ static int butter_upload_thread(void *userdata) {
       mtx_lock(&butter->upload_mutex);
       butter_log_error("Could not create fence: %d", res);
       butter_destroy_buffer(butter, &upload->staging_buffer);
-      vkDestroyImage(butter->device, upload->texture.image, null);
-      vkDestroyImageView(butter->device, upload->texture.view, null);
+      vkDestroyImage(butter->device, upload->texture->image, null);
+      vkDestroyImageView(butter->device, upload->texture->view, null);
       vkFreeCommandBuffers(butter->device, butter->upload_pool_async, 1, &cmd);
-      vkFreeMemory(butter->device, upload->texture.memory, null);
+      vkFreeMemory(butter->device, upload->texture->memory, null);
 
       upload->failed = true;
-      atomic_store(&upload->texture.upload_failed, true);
+      atomic_store(&upload->texture->upload_failed, true);
       mtx_unlock(&butter->upload_mutex);
       continue;
     }
@@ -580,13 +582,13 @@ static int butter_upload_thread(void *userdata) {
         butter_log_error("Could not wait for fence: %d", res);
 
       butter_destroy_buffer(butter, &upload->staging_buffer);
-      vkDestroyImage(butter->device, upload->texture.image, null);
-      vkDestroyImageView(butter->device, upload->texture.view, null);
+      vkDestroyImage(butter->device, upload->texture->image, null);
+      vkDestroyImageView(butter->device, upload->texture->view, null);
       vkDestroyFence(butter->device, fence, null);
       vkFreeCommandBuffers(butter->device, butter->upload_pool_async, 1, &cmd);
-      vkFreeMemory(butter->device, upload->texture.memory, null);
+      vkFreeMemory(butter->device, upload->texture->memory, null);
       upload->failed = true;
-      atomic_store(&upload->texture.upload_failed, true);
+      atomic_store(&upload->texture->upload_failed, true);
       mtx_unlock(&butter->upload_mutex);
       continue;
     }
@@ -598,9 +600,9 @@ static int butter_upload_thread(void *userdata) {
     butter_destroy_buffer(butter, &upload->staging_buffer);
 
     upload->ready = true;
-    atomic_store(&upload->texture.upload_ready, true);
-    atomic_store(&upload->texture.upload_failed, false);
-    atomic_store(&upload->texture.upload_cancelled, false);
+    atomic_store(&upload->texture->upload_ready, true);
+    atomic_store(&upload->texture->upload_failed, false);
+    atomic_store(&upload->texture->upload_cancelled, false);
     mtx_unlock(&butter->upload_mutex);
   }
 
@@ -645,19 +647,21 @@ void butter_stop_texture_uploads(butter_t *butter) {
   cnd_destroy(&butter->upload_ready);
 }
 
-butter_texture_t butter_submit_texture_upload(butter_t *butter, u32 width,
-                                              u32 height, vk_format_t format,
-                                              const void *data, u64 data_size,
-                                              vk_sampler_t sampler) {
-  butter_texture_t texture = {0};
-  texture.width = width;
-  texture.height = height;
-  texture.format = format;
-  texture.sampler = sampler;
-  atomic_store(&texture.is_upload, true);
-  atomic_store(&texture.upload_ready, false);
-  atomic_store(&texture.upload_failed, false);
-  atomic_store(&texture.upload_cancelled, false);
+butter_texture_t *butter_submit_texture_upload(butter_t *butter, u32 width,
+                                               u32 height, vk_format_t format,
+                                               const void *data, u64 data_size,
+                                               vk_sampler_t sampler) {
+  butter_texture_t *texture =
+      arena_alloc_zeroed(butter->arena, butter_texture_t, 1);
+  *texture = (butter_texture_t){0};
+  texture->width = width;
+  texture->height = height;
+  texture->format = format;
+  texture->sampler = sampler;
+  atomic_store(&texture->is_upload, true);
+  atomic_store(&texture->upload_ready, false);
+  atomic_store(&texture->upload_failed, false);
+  atomic_store(&texture->upload_cancelled, false);
 
   vk_image_create_info_t image_info = {0};
   image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -675,19 +679,19 @@ butter_texture_t butter_submit_texture_upload(butter_t *butter, u32 width,
 
   vk_result_t res;
   if ((res = vkCreateImage(butter->device, &image_info, null,
-                           &texture.image)) != VK_SUCCESS) {
+                           &texture->image)) != VK_SUCCESS) {
     butter_log_error("Could not create image: %d", res);
     return texture;
   }
 
   vk_memory_requirements_t mem_reqs;
-  vkGetImageMemoryRequirements(butter->device, texture.image, &mem_reqs);
+  vkGetImageMemoryRequirements(butter->device, texture->image, &mem_reqs);
   i32 mem_type =
       find_memory_type(butter->physical_device, mem_reqs.memoryTypeBits,
                        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
   if (mem_type == -1) {
     butter_log_error("No device-local memory type for texture");
-    vkDestroyImage(butter->device, texture.image, NULL);
+    vkDestroyImage(butter->device, texture->image, NULL);
     return texture;
   }
 
@@ -697,20 +701,20 @@ butter_texture_t butter_submit_texture_upload(butter_t *butter, u32 width,
   alloc_info.memoryTypeIndex = mem_type;
 
   if ((res = vkAllocateMemory(butter->device, &alloc_info, null,
-                              &texture.memory)) != VK_SUCCESS) {
+                              &texture->memory)) != VK_SUCCESS) {
     butter_log_error("Could not allocate memory for texture: %d", res);
-    vkDestroyImage(butter->device, texture.image, null);
+    vkDestroyImage(butter->device, texture->image, null);
     return texture;
   }
 
-  vkBindImageMemory(butter->device, texture.image, texture.memory, 0);
+  vkBindImageMemory(butter->device, texture->image, texture->memory, 0);
 
   butter_buffer_t staging_buffer = butter_create_buffer(
       butter, data_size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, true);
   if (staging_buffer.handle == VK_NULL_HANDLE) {
     butter_log_error("Could not create staging buffer");
-    vkDestroyImage(butter->device, texture.image, null);
-    vkFreeMemory(butter->device, texture.memory, null);
+    vkDestroyImage(butter->device, texture->image, null);
+    vkFreeMemory(butter->device, texture->memory, null);
     return texture;
   }
 
@@ -718,7 +722,7 @@ butter_texture_t butter_submit_texture_upload(butter_t *butter, u32 width,
 
   vk_image_view_create_info_t image_view_info = {0};
   image_view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-  image_view_info.image = texture.image;
+  image_view_info.image = texture->image;
   image_view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
   image_view_info.format = format;
   image_view_info.subresourceRange = (vk_image_subresource_range_t){0};
@@ -727,10 +731,10 @@ butter_texture_t butter_submit_texture_upload(butter_t *butter, u32 width,
   image_view_info.subresourceRange.layerCount = 1;
 
   if ((res = vkCreateImageView(butter->device, &image_view_info, null,
-                               &texture.view)) != VK_SUCCESS) {
+                               &texture->view)) != VK_SUCCESS) {
     butter_log_error("Could not create image view: %d", res);
-    vkDestroyImage(butter->device, texture.image, null);
-    vkFreeMemory(butter->device, texture.memory, null);
+    vkDestroyImage(butter->device, texture->image, null);
+    vkFreeMemory(butter->device, texture->memory, null);
     return texture;
   }
 
@@ -742,8 +746,8 @@ butter_texture_t butter_submit_texture_upload(butter_t *butter, u32 width,
   if (next_tail == butter->upload_queue_head) {
     butter_log_error("Upload queue full");
     mtx_unlock(&butter->upload_mutex);
-    butter_destroy_texture(butter, &texture);
-    return (butter_texture_t){0};
+    butter_destroy_texture(butter, texture);
+    return null;
   }
 
   butter_upload_t *upload = &butter->upload_queue[tail];
@@ -769,9 +773,9 @@ void butter_stop_texture_upload(butter_t *butter, butter_texture_t *texture) {
   while (idx != butter->upload_queue_tail) {
     butter_upload_t *upload = &butter->upload_queue[idx];
 
-    if (upload->texture.image == texture->image) {
+    if (upload->texture->image == texture->image) {
       upload->cancelled = true;
-      atomic_store(&upload->texture.upload_cancelled, true);
+      atomic_store(&upload->texture->upload_cancelled, true);
       butter_log_debug("Cancelled upload for texture (image=%p)",
                        (void *)texture->image);
       break;
@@ -791,7 +795,7 @@ b32 butter_texture_is_ready(const butter_texture_t *texture) {
   return is_upload && upload_ready && !upload_failed;
 }
 
-i32 butter_texture_register(butter_t *butter, butter_texture_t texture) {
+i32 butter_texture_register(butter_t *butter, butter_texture_t *texture) {
   if (butter->texture_registry.count >= butter->texture_registry.capacity) {
     butter_log_error("Texture registry is full");
     return -1;
@@ -814,7 +818,7 @@ butter_texture_t *butter_texture_get(butter_t *butter, i32 id) {
 
   for (u32 i = 0; i < butter->texture_registry.count; i++) {
     if (butter->texture_registry.entries[i].id == (u32)id)
-      return &butter->texture_registry.entries[i].texture;
+      return butter->texture_registry.entries[i].texture;
   }
 
   butter_log_warning("Can't get texture: Texture ID not found");
@@ -834,7 +838,7 @@ void butter_texture_deregister(butter_t *butter, i32 id) {
 
   for (u32 i = 0; i < butter->texture_registry.count; i++) {
     if (butter->texture_registry.entries[i].id == (u32)id) {
-      butter_texture_t *texture = &butter->texture_registry.entries[i].texture;
+      butter_texture_t *texture = butter->texture_registry.entries[i].texture;
 
       butter_stop_texture_upload(butter, texture);
       butter_destroy_texture(butter, texture);

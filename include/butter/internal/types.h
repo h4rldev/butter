@@ -236,7 +236,7 @@ struct butter_texture {
 };
 
 struct butter_texture_registry_entry {
-  struct butter_texture texture;
+  struct butter_texture *texture;
   u32 id;
 };
 
@@ -248,7 +248,7 @@ struct butter_texture_registry {
 };
 
 typedef struct {
-  struct butter_texture texture;
+  struct butter_texture *texture;
   struct butter_buffer staging_buffer;
   b32 ready;
   b32 failed;

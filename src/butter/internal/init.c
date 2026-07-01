@@ -353,11 +353,11 @@ butter_context_t *butter_create(arena_t *arena, vk_instance_t instance,
       255, 0, 255, 255, 0, 0, 0, 255, 0, 0, 0, 255, 255, 0, 255, 255,
   };
 
-  struct butter_texture default_texture = butter_create_texture(
+  struct butter_texture *default_texture = butter_create_texture(
       context, CHECKER_SIZE, CHECKER_SIZE, VK_FORMAT_R8G8B8A8_SRGB,
       checker_data, sizeof(checker_data), default_sampler);
 
-  if (default_texture.image == VK_NULL_HANDLE) {
+  if (default_texture->image == VK_NULL_HANDLE) {
     butter_log_fatal("Failed to create default fallback texture");
     return NULL;
   }
@@ -367,8 +367,9 @@ butter_context_t *butter_create(arena_t *arena, vk_instance_t instance,
                                      context->texture_descriptor_set_layout);
 
   butter_update_descriptor_image(context, &default_desc, 0,
-                                 default_texture.view, default_texture.sampler);
-  default_texture.descriptor_set = default_desc;
+                                 default_texture->view,
+                                 default_texture->sampler);
+  default_texture->descriptor_set = default_desc;
 
   context->texture_registry.entries[0].id = 0;
   context->texture_registry.entries[0].texture = default_texture;
@@ -430,7 +431,7 @@ void butter_destroy(butter_context_t *context) {
 
   if (context->texture_registry.count > 0) {
     butter_destroy_texture(context,
-                           &context->texture_registry.entries[0].texture);
+                           context->texture_registry.entries[0].texture);
   }
 
   if (context->texture_descriptor_pool)

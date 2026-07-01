@@ -116,11 +116,12 @@ vk_result_t butter_submit_and_present(butter_context_t *context,
 
 #ifdef VK_API_VERSION_1_2
   u64 signal_value = context->timeline_value + 1;
+  u64 signal_values[2] = {signal_value, 0};
 
   vk_timeline_semaphore_submit_info_t timeline_submit_info = {0};
   timeline_submit_info.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
-  timeline_submit_info.signalSemaphoreValueCount = 1;
-  timeline_submit_info.pSignalSemaphoreValues = &signal_value;
+  timeline_submit_info.signalSemaphoreValueCount = 2;
+  timeline_submit_info.pSignalSemaphoreValues = signal_values;
 
   vk_semaphore_t signal_semaphores[2] = {
       context->timeline_semaphore,

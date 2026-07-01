@@ -841,16 +841,23 @@ void butter_submit_draws(butter_t *butter, const butter_draw_cmd_t *cmds,
                                 draw->descriptor_set_count, sets, 0, null);
       } else {
         butter_texture_t *tex = null;
-        if (draw->texture_id != 0)
+        if (draw->texture_id != 0) {
+          butter_log_debug("Getting texture of id: %d", draw->texture_id);
           tex = butter_texture_get(butter, draw->texture_id);
+        }
 
-        if (!tex || !butter_texture_is_ready(tex))
+        if (!tex || !butter_texture_is_ready(tex)) {
+          butter_log_debug("Texture not available or default texture was "
+                           "provided, getting it.");
           tex = butter_texture_get(butter, 0);
+        }
 
-        if (tex)
+        if (tex) {
+          butter_log_debug("Binding descriptor from texture to pipeline.");
           vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                                   draw->pipeline.layout, 0, 1,
                                   &tex->descriptor_set.set, 0, null);
+        }
       }
     }
 

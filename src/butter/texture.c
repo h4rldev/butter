@@ -850,5 +850,5 @@ void butter_texture_deregister(butter_t *butter, i32 id) {
     }
   }
 
-  butter_log_warning("Can't deregister: Texture ID not found");
+  butter_log_warning("Can't deregister: Texture ID %d not found", id);
 }

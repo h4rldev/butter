@@ -64,6 +64,10 @@ butter_texture_t *butter_create_texture(butter_t *butter, u32 width, u32 height,
   texture->height = height;
   texture->format = format;
   texture->sampler = sampler;
+  atomic_store(&texture->upload_cancelled, false);
+  atomic_store(&texture->is_upload, true);
+  atomic_store(&texture->upload_ready, true);
+  atomic_store(&texture->upload_failed, false);
 
   vk_image_create_info_t image_info = {0};
   image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -836,6 +840,8 @@ void butter_texture_deregister(butter_t *butter, i32 id) {
     return;
   }
 
+  if (!butter->texture_registry.entries)
+    return;
   for (u32 i = 0; i < butter->texture_registry.count; i++) {
     if (butter->texture_registry.entries[i].id == (u32)id) {
       butter_texture_t *texture = butter->texture_registry.entries[i].texture;

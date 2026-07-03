@@ -225,7 +225,7 @@ int main(void) {
       .display = bread_window_get_surface(&window).display,
   };
 
-  butter_t *butter = butter_init(arena, &surface_info, "butter", false,
+  butter_t *butter = butter_init(arena, &surface_info, "butter", true,
                                  window.width, window.height);
   if (!butter) {
     butter_log_error("Could not create context");

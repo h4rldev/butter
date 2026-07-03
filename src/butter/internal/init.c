@@ -340,7 +340,7 @@ butter_context_t *butter_create(arena_t *arena, vk_instance_t instance,
 
   butter_sampler_desc_t default_sampler_desc =
       butter_sampler_desc_nearest_clamp();
-  VkSampler default_sampler =
+  vk_sampler_t default_sampler =
       butter_create_sampler(context, &default_sampler_desc);
   if (default_sampler == VK_NULL_HANDLE) {
     butter_log_fatal("Failed to create default sampler for fallback texture");
@@ -402,6 +402,20 @@ void butter_destroy(butter_context_t *context) {
     for (u32 i = 0; i < context->image_count; i++)
       butter_destroy_buffer(context, &context->dynamic_vbos[i]);
 
+  if (context->image_count > 0) {
+    for (u32 i = 0; i < context->image_count; i++) {
+      if (context->rendering_finished[i]) {
+        butter_log_debug("Destroying rendering finished semaphore %d", i);
+        vkDestroySemaphore(context->device, context->rendering_finished[i],
+                           null);
+      }
+      if (context->image_available[i]) {
+        butter_log_debug("Destroying image available semaphore %d", i);
+        vkDestroySemaphore(context->device, context->image_available[i], null);
+      }
+    }
+  }
+
   butter_destroy_swapchain_resources(context);
 
   if (context->render_pass) {
@@ -409,17 +423,10 @@ void butter_destroy(butter_context_t *context) {
     vkDestroyRenderPass(context->device, context->render_pass, null);
   }
 
-  if (context->rendering_finished && context->image_count > 0) {
-    for (u32 i = 0; i < context->image_count; i++) {
-      if (context->rendering_finished[i])
-        vkDestroySemaphore(context->device, context->rendering_finished[i],
-                           null);
-      if (context->image_available[i])
-        vkDestroySemaphore(context->device, context->image_available[i], null);
-      if (context->in_flight_fences[i])
-        vkDestroyFence(context->device, context->in_flight_fences[i], null);
-    }
-  }
+#ifdef VK_API_VERSION_1_2
+  if (context->timeline_semaphore)
+    vkDestroySemaphore(context->device, context->timeline_semaphore, null);
+#endif
 
   context->rendering_finished = null;
   context->image_available = null;
@@ -430,6 +437,8 @@ void butter_destroy(butter_context_t *context) {
   cnd_destroy(&context->frame_done);
 
   if (context->texture_registry.count > 0) {
+    butter_destroy_sampler(
+        context, context->texture_registry.entries[0].texture->sampler);
     butter_destroy_texture(context,
                            context->texture_registry.entries[0].texture);
   }

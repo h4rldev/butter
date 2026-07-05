@@ -200,9 +200,7 @@ vk_result_t butter_end_frame(arena_t *arena, butter_t *butter,
   vkEndCommandBuffer(frame->cmd);
 
   res = butter_submit_and_present(butter, frame->cmd, frame->image_index);
-
-  if (!butter->vsync)
-    butter_limit_frame_rate(butter, frame->frame_start_ns);
+  butter_limit_frame_rate(butter, frame->frame_start_ns);
 
   return res;
 }

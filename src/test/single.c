@@ -16,10 +16,10 @@
 void bread_event_callback(bread_event_t *event, void *userdata) {
   butter_t *butter = (butter_t *)userdata;
 
-  fprintf(stderr, "Got a event");
+  // fprintf(stderr, "Got a event");
   switch (event->type) {
   case BREAD_EVENT_WINDOW_CLOSE:
-    fprintf(stderr, ", its a close event\n");
+    // fprintf(stderr, ", its a close event\n");
     break;
   case BREAD_EVENT_WINDOW_RESIZE:
     if (butter) {
@@ -29,7 +29,7 @@ void bread_event_callback(bread_event_t *event, void *userdata) {
     }
     break;
   default:
-    fprintf(stderr, " of type %d\n", event->type);
+    // fprintf(stderr, " of type %d\n", event->type);
     break;
   }
 }
@@ -67,9 +67,17 @@ int main(void) {
   while (bread_window_should_close(&window) == false) {
     bread_window_poll(&window);
 
+    if (butter->resize_pending)
+      butter_resize(butter, butter->pending_width, butter->pending_height);
+
     butter_frame_t *frame = butter_begin_frame(arena, butter);
-    if (!frame)
+    if (!frame) {
+      if (butter->resize_pending) {
+        butter_resize(butter, butter->pending_width, butter->pending_height);
+        butter->resize_pending = false;
+      }
       continue;
+    }
 
     vk_result_t res = butter_end_frame(arena, butter, frame);
     if (res == VK_ERROR_OUT_OF_DATE_KHR || res == VK_SUBOPTIMAL_KHR) {

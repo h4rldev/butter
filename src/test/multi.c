@@ -260,7 +260,7 @@ int main(void) {
                            1.0f);
 
     butter_request_frame(butter);
-    // butter_wait_for_frame(butter);
+    butter_wait_for_frame(butter);
 
     // butter_log_debug("Clearing per frame arena: %d", current_frame_arena);
     arena_clear(per_frame_arenas[current_frame_arena]);

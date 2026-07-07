@@ -122,6 +122,11 @@ vk_instance_t butter_create_instance(arena_t *arena, const cstr *app_name,
   u32 total_ext_count = extension_count + (validation ? 1 : 0);
   const cstr **all_exts =
       arena_alloc_zeroed(arena, const cstr *, total_ext_count);
+  if (!all_exts) {
+    butter_log_fatal("Could not allocate all_exts");
+    return VK_NULL_HANDLE;
+  }
+
   memcpy(all_exts, exts, sizeof(const cstr *) * extension_count);
   if (validation)
     all_exts[extension_count] = VK_EXT_DEBUG_UTILS_EXTENSION_NAME;
@@ -178,7 +183,7 @@ butter_context_t *butter_create(arena_t *arena, vk_instance_t instance,
   context->surface = create_platform_surface(context->instance, surface_info);
   if (!context->surface) {
     butter_log_fatal("Could not create platform surface");
-    return null;
+    goto fail;
   }
 
   if (!butter_select_physical_device(arena, context))
@@ -189,6 +194,11 @@ butter_context_t *butter_create(arena_t *arena, vk_instance_t instance,
   u32 mode_count = 0;
   vkGetPhysicalDeviceSurfacePresentModesKHR(
       context->physical_device, context->surface, &mode_count, NULL);
+
+  if (mode_count == 0) {
+    butter_log_fatal("Could not get surface present modes");
+    goto fail;
+  }
 
   butter_log_debug("Available present modes count: %d", mode_count);
   vk_present_mode_khr_t *available_modes =
@@ -238,7 +248,7 @@ butter_context_t *butter_create(arena_t *arena, vk_instance_t instance,
                              VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, true);
     if (context->dynamic_vbos[i].handle == VK_NULL_HANDLE) {
       butter_log_fatal("Could not create dynamic VBO");
-      return null;
+      goto fail;
     }
   }
 
@@ -307,7 +317,7 @@ butter_context_t *butter_create(arena_t *arena, vk_instance_t instance,
     butter_log_debug("Timeline semaphore initialized to 0");
 #else
     butter_log_fatal("How did you get here?");
-    return null;
+    goto fail;
 #endif
   }
 
@@ -344,7 +354,7 @@ butter_context_t *butter_create(arena_t *arena, vk_instance_t instance,
       butter_create_sampler(context, &default_sampler_desc);
   if (default_sampler == VK_NULL_HANDLE) {
     butter_log_fatal("Failed to create default sampler for fallback texture");
-    return NULL;
+    goto fail;
   }
 
 #define CHECKER_SIZE 2
@@ -359,12 +369,16 @@ butter_context_t *butter_create(arena_t *arena, vk_instance_t instance,
 
   if (default_texture->image == VK_NULL_HANDLE) {
     butter_log_fatal("Failed to create default fallback texture");
-    return NULL;
+    goto fail;
   }
 
   butter_descriptor_set_t default_desc =
       butter_allocate_descriptor_set(context, context->texture_descriptor_pool,
                                      context->texture_descriptor_set_layout);
+  if (default_desc.set == VK_NULL_HANDLE) {
+    butter_log_fatal("Failed to allocate default descriptor set");
+    goto fail;
+  }
 
   butter_update_descriptor_image(context, &default_desc, 0,
                                  default_texture->view,
@@ -413,6 +427,12 @@ void butter_destroy(butter_context_t *context) {
         butter_log_debug("Destroying image available semaphore %d", i);
         vkDestroySemaphore(context->device, context->image_available[i], null);
       }
+      if ((context->available_vulkan_features &
+           BUTTER_FEATURE_TIMELINE_SEMAPHORE) == 0)
+        if (context->in_flight_fences[i]) {
+          butter_log_debug("Destroying in flight fence %d", i);
+          vkDestroyFence(context->device, context->in_flight_fences[i], null);
+        }
     }
   }
 

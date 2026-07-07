@@ -18,6 +18,11 @@ b32 butter_select_physical_device(arena_t *arena, butter_context_t *context) {
 
   vk_physical_device_t *devices =
       arena_alloc_zeroed(arena, vk_physical_device_t, count);
+  if (!devices) {
+    butter_log_fatal("Could not allocate devices");
+    return false;
+  }
+
   if ((res = vkEnumeratePhysicalDevices(context->instance, &count, devices)) !=
       VK_SUCCESS) {
     butter_log_fatal("Could not enumerate physical devices");
@@ -32,6 +37,11 @@ b32 butter_select_physical_device(arena_t *arena, butter_context_t *context) {
     vkGetPhysicalDeviceQueueFamilyProperties(devices[i], &qf_count, null);
     vk_queue_family_properties_t *qf =
         arena_alloc_zeroed(arena, vk_queue_family_properties_t, qf_count);
+    if (!qf) {
+      butter_log_fatal("Could not allocate qf");
+      return false;
+    }
+
     vkGetPhysicalDeviceQueueFamilyProperties(devices[i], &qf_count, qf);
 
     for (u32 j = 0; j < qf_count; j++) {
@@ -56,6 +66,9 @@ b32 butter_select_physical_device(arena_t *arena, butter_context_t *context) {
     if (found_q_pd)
       break;
   }
+
+  if (!found_q_pd)
+    return false;
 
   u32 driver_version = context->driver_version;
 
@@ -117,13 +130,25 @@ b32 butter_select_physical_device(arena_t *arena, butter_context_t *context) {
     context->available_vulkan_features |= BUTTER_FEATURE_PUSH_DESCRIPTORS;
 #endif
 
-  if (found_q_pd)
-    return true;
-
-  return false;
+  return true;
 }
 
 b32 butter_create_device(butter_context_t *context) {
+  if (!context) {
+    butter_log_error("Context is null");
+    return false;
+  }
+
+  if (!context->physical_device) {
+    butter_log_error("Physical device is null");
+    return false;
+  }
+
+  if (context->queue_family == UINT32_MAX) {
+    butter_log_error("Queue family is invalid");
+    return false;
+  }
+
   f32 prio = 1.0f;
   vk_result_t res;
 

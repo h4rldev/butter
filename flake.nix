@@ -262,11 +262,14 @@
           htils.packages.${system}.htils-threadsafe
           bread.packages.${system}.bread-wayland-release
           bread.packages.${system}.bread-x11-release
+          bread.packages.${system}.bread-wayland-debug
+          bread.packages.${system}.bread-x11-debug
 
           vulkan-headers
           vulkan-validation-layers
           vulkan-loader
           libxcb-wm
+          libxcb-cursor
           libxcb
           libxkbcommon
           wayland

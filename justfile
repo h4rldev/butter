@@ -32,10 +32,10 @@ shared_flags_release := '-O3 -std=gnu11'
 
 ## Link flags
 
-release_wayland_link_flags := shared_flags_release + ' -lwayland-client -lxkbcommon -lbutter-wayland-release -lbread-wayland-release ' + link_flags
-release_x11_link_flags := shared_flags_release + ' -lxkbcommon -lxkbcommon-x11 -lxcb -lxcb-icccm -lxcb-randr -lbutter-x11-release -lbread-x11-release ' + link_flags
-debug_wayland_link_flags := shared_flags_debug + ' -lwayland-client -lxkbcommon -lbutter-wayland-debug -lbread-wayland-release ' + link_flags
-debug_x11_link_flags := shared_flags_debug + ' -lxkbcommon -lxkbcommon-x11 -lxcb -lxcb-icccm -lxcb-randr -lbutter-x11-debug -lbread-x11-release ' + link_flags
+release_wayland_link_flags := shared_flags_release + ' -lwayland-client -lwayland-cursor -lxkbcommon -lbutter-wayland-release -lbread-wayland-release ' + link_flags
+release_x11_link_flags := shared_flags_release + ' -lxkbcommon -lxkbcommon-x11 -lxcb -lxcb-cursor -lxcb-icccm -lxcb-randr -lbutter-x11-release -lbread-x11-release ' + link_flags
+debug_wayland_link_flags := shared_flags_debug + ' -lwayland-client -lwayland-cursor -lxkbcommon -lbutter-wayland-debug -lbread-wayland-release ' + link_flags
+debug_x11_link_flags := shared_flags_debug + ' -lxkbcommon -lxkbcommon-x11 -lxcb -lxcb-cursor -lxcb-icccm -lxcb-randr -lbutter-x11-debug -lbread-x11-release ' + link_flags
 
 ## Static link flags
 

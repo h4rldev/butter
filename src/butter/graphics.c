@@ -307,6 +307,11 @@ butter_pipeline_t butter_create_pipeline(butter_t *butter,
 
   vk_shader_module_t *modules = arena_alloc_zeroed(
       butter->arena, vk_shader_module_t, desc->shaders_count);
+  if (!modules) {
+    butter_log_fatal("Could not allocate shader modules");
+    goto fail;
+  }
+
   for (u32 i = 0; i < desc->shaders_count; i++) {
     vk_shader_module_create_info_t info = {
         .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
@@ -318,19 +323,24 @@ butter_pipeline_t butter_create_pipeline(butter_t *butter,
     if (vkCreateShaderModule(butter->device, &info, null, &modules[i]) !=
         VK_SUCCESS) {
       butter_log_error("Could not create shader module at index %d", i);
-      return (butter_pipeline_t){0};
+      goto fail;
     }
   }
 
   vk_pipeline_shader_stage_create_info_t *shader_stages =
       arena_alloc_zeroed(butter->arena, vk_pipeline_shader_stage_create_info_t,
                          desc->shaders_count);
+  if (!shader_stages) {
+    butter_log_fatal("Could not allocate shader stages");
+    goto fail;
+  }
+
   for (u32 i = 0; i < desc->shaders_count; i++) {
     vk_shader_stage_flags_t current_flag =
         shader_stage_to_vk(desc->shaders[i].stage);
     if (current_flag == VK_SHADER_STAGE_COMPUTE_BIT) {
       butter_log_error("Could not create shader stage at index %d", i);
-      return (butter_pipeline_t){0};
+      goto fail;
     }
 
     shader_stages[i].sType =
@@ -345,7 +355,7 @@ butter_pipeline_t butter_create_pipeline(butter_t *butter,
 
   if (desc->attribute_count > 0 && desc->vertex_stride == 0) {
     butter_log_error("Vertex stride must be > 0 when attributes are present");
-    return (butter_pipeline_t){0};
+    goto fail;
   }
 
   vk_vertex_input_binding_description_t binding_description = {0};
@@ -437,7 +447,7 @@ butter_pipeline_t butter_create_pipeline(butter_t *butter,
   if (vkCreatePipelineLayout(butter->device, &layout_info, null, &layout) !=
       VK_SUCCESS) {
     butter_log_error("Could not create pipeline layout");
-    return (butter_pipeline_t){0};
+    goto fail;
   }
 
   vk_graphics_pipeline_create_info_t pipeline_info = {0};
@@ -462,12 +472,8 @@ butter_pipeline_t butter_create_pipeline(butter_t *butter,
                                 &pipeline_info, null,
                                 &pipeline) != VK_SUCCESS) {
     butter_log_error("Could not create graphics pipeline");
-
     vkDestroyPipelineLayout(butter->device, layout, null);
-    for (u32 i = 0; i < desc->shaders_count; i++)
-      vkDestroyShaderModule(butter->device, modules[i], null);
-
-    return (butter_pipeline_t){0};
+    goto fail;
   }
 
   for (u32 i = 0; i < desc->shaders_count; i++)
@@ -478,12 +484,18 @@ butter_pipeline_t butter_create_pipeline(butter_t *butter,
       .layout = layout,
       .uses_descriptors = uses_descriptors,
   };
+
+fail:
+  for (u32 i = 0; i < desc->shaders_count; i++)
+    if (modules[i])
+      vkDestroyShaderModule(butter->device, modules[i], null);
+  return (butter_pipeline_t){0};
 }
 
 void butter_destroy_pipeline(butter_t *butter, butter_pipeline_t *pipeline) {
   butter_log_debug("Destroying pipeline");
 
-  if (!butter && !pipeline)
+  if (!butter || !pipeline)
     return;
 
   if (pipeline->layout) {
@@ -531,6 +543,7 @@ butter_buffer_t butter_create_buffer(butter_t *butter, u64 size,
 
   if (memory_type == -1) {
     butter_log_fatal("Could not find suitable memory type");
+    vkDestroyBuffer(butter->device, buffer, null);
     return (butter_buffer_t){0};
   }
 
@@ -543,6 +556,7 @@ butter_buffer_t butter_create_buffer(butter_t *butter, u64 size,
   if ((res = vkAllocateMemory(butter->device, &alloc_info, null, &memory)) !=
       VK_SUCCESS) {
     butter_log_fatal("Could not allocate buffer memory: %d", res);
+    vkDestroyBuffer(butter->device, buffer, null);
     return (butter_buffer_t){0};
   }
 
@@ -550,12 +564,17 @@ butter_buffer_t butter_create_buffer(butter_t *butter, u64 size,
   if ((res = vkMapMemory(butter->device, memory, 0, mem_reqs.size, 0,
                          &mapped)) != VK_SUCCESS) {
     butter_log_fatal("Could not map buffer memory: %d", res);
+    vkDestroyBuffer(butter->device, buffer, null);
+    vkFreeMemory(butter->device, memory, null);
     return (butter_buffer_t){0};
   }
 
   if ((res = vkBindBufferMemory(butter->device, buffer, memory, 0)) !=
       VK_SUCCESS) {
     butter_log_fatal("Could not bind buffer memory: %d", res);
+    vkUnmapMemory(butter->device, memory);
+    vkFreeMemory(butter->device, memory, null);
+    vkDestroyBuffer(butter->device, buffer, null);
     return (butter_buffer_t){0};
   }
 
@@ -753,6 +772,11 @@ butter_sampler_desc_t butter_sampler_desc_anisotropic(f32 max_anisotropy) {
 
 vk_sampler_t butter_create_sampler(butter_t *butter,
                                    const butter_sampler_desc_t *desc) {
+  if (!butter || !desc) {
+    butter_log_error("Invalid arguments");
+    return VK_NULL_HANDLE;
+  }
+
   vk_result_t res;
 
   vk_sampler_create_info_t sampler_info = {0};
@@ -823,6 +847,11 @@ void butter_submit_draws(butter_t *butter, const butter_draw_cmd_t *cmds,
       vkCmdSetScissor(cmd, 0, 1, &scissor);
     }
 
+    if (draw->pipeline.pipeline == VK_NULL_HANDLE) {
+      butter_log_error("Draw command has no pipeline");
+      continue;
+    }
+
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                       draw->pipeline.pipeline);
     if (draw->vertex_buffer)
@@ -873,6 +902,11 @@ void butter_submit_draws(butter_t *butter, const butter_draw_cmd_t *cmds,
 
 butter_allocation_t butter_alloc_vertices(butter_t *butter, u32 vertex_count,
                                           u32 stride) {
+  if (!butter || vertex_count == 0 || stride == 0) {
+    butter_log_error("Invalid arguments");
+    return (butter_allocation_t){0};
+  }
+
   u32 frame_index = butter->frame_index;
   butter_allocation_t allocation = {0};
 

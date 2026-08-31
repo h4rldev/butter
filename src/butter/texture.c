@@ -781,6 +781,9 @@ butter_texture_t *butter_submit_texture_upload(butter_t *butter, u32 width,
 
   memcpy(staging_buffer.mapped, data, data_size);
 
+  if (!butter_texture_create_image(butter, texture))
+    goto fail;
+
   if (!butter_texture_create_view(butter, texture))
     goto fail;
 

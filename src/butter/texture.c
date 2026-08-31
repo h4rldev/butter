@@ -711,7 +711,8 @@ void butter_init_texture_upload(butter_t *butter, u32 queue_cap) {
   vk_command_pool_create_info_t pool_info = {0};
   pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
   pool_info.queueFamilyIndex = butter->queue_family;
-  pool_info.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
+  pool_info.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT |
+                    VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
 
   vk_result_t res;
 

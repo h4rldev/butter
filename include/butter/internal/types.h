@@ -120,6 +120,8 @@ typedef VkDescriptorBufferInfo vk_descriptor_buffer_info_t;
 typedef VkDescriptorImageInfo vk_descriptor_image_info_t;
 typedef VkDescriptorSetLayoutBinding vk_descriptor_set_layout_binding_t;
 typedef VkDescriptorSetLayoutCreateInfo vk_descriptor_set_layout_create_info_t;
+typedef VkDescriptorSetLayoutCreateFlags
+    vk_descriptor_set_layout_create_flags_t;
 
 typedef VkShaderStageFlagBits vk_shader_stage_flags_t;
 
@@ -170,6 +172,7 @@ typedef VkBuffer vk_buffer_t;
 typedef VkBufferCreateInfo vk_buffer_create_info_t;
 typedef VkBufferUsageFlags vk_buffer_usage_flags_t;
 typedef VkBufferImageCopy vk_buffer_image_copy_t;
+typedef VkBufferCopy vk_buffer_copy_t;
 
 typedef VkDeviceMemory vk_device_memory_t;
 typedef VkDeviceSize vk_device_size_t;
@@ -207,6 +210,24 @@ struct butter_frame {
   u32 image_index;
 };
 
+enum butter_shader_stage {
+  BUTTER_STAGE_VERTEX,
+  BUTTER_STAGE_TESSELLATION_CONTROL,
+  BUTTER_STAGE_TESSELLATION_EVALUATION,
+  BUTTER_STAGE_GEOMETRY,
+  BUTTER_STAGE_FRAGMENT,
+  BUTTER_STAGE_MAX
+};
+
+struct butter_shader {
+  const cstr *name;
+  enum butter_shader_stage stage;
+  const void *code;
+  const vk_specialization_info_t *spec;
+  const cstr *entry_point;
+  u64 code_size;
+};
+
 struct butter_buffer {
   vk_buffer_t handle;
   vk_device_memory_t memory;
@@ -235,6 +256,12 @@ struct butter_texture {
   atomic_b32 upload_cancelled;
 };
 
+struct butter_shader_registry {
+  struct butter_shader *shaders;
+  u32 capacity;
+  u32 count;
+};
+
 struct butter_texture_registry_entry {
   struct butter_texture *texture;
   u32 id;
@@ -254,6 +281,18 @@ typedef struct {
   b32 failed;
   b32 cancelled;
 } butter_upload_t;
+
+struct butter_init_config {
+  const cstr *app_name;
+  b32 use_validation_layers;
+  u32 latency_cap;
+  u32 width;
+  u32 height;
+  u64 dynamic_vbo_size;
+  u64 dynamic_ibo_size;
+  const cstr *pipeline_cache_path;
+  b32 enable_depth;
+};
 
 typedef void (*butter_draw_callback_t)(vk_command_buffer_t cmd,
                                        const struct butter_frame *frame,
@@ -276,9 +315,17 @@ typedef struct butter_context {
   vk_extent2d_t extent;
   u32 image_count;
 
+  const cstr *pipeline_cache_path;
+
   vk_image_t *images;
   vk_image_view_t *image_views;
   vk_framebuffer_t *framebuffers;
+
+  vk_image_t *depth_images;
+  vk_image_view_t *depth_image_views;
+  vk_device_memory_t *depth_memories;
+  b32 enable_depth;
+
   vk_render_pass_t render_pass;
   vk_fence_t *in_flight_fences;
   vk_semaphore_t *image_available;
@@ -332,6 +379,12 @@ typedef struct butter_context {
   struct butter_buffer *dynamic_vbos;
   u32 dynamic_vbo_size;
   u64 dynamic_vbo_offset;
+
+  struct butter_buffer *dynamic_ibos;
+  u32 dynamic_ibo_size;
+  u64 dynamic_ibo_offset;
+
+  struct butter_shader_registry *shader_registry;
 
   struct butter_texture_registry texture_registry;
   vk_descriptor_pool_t texture_descriptor_pool;

@@ -84,22 +84,8 @@ typedef enum {
   BUTTER_FRONT_FACE_MAX
 } butter_front_face_t;
 
-typedef enum {
-  BUTTER_STAGE_VERTEX,
-  BUTTER_STAGE_TESSELLATION_CONTROL,
-  BUTTER_STAGE_TESSELLATION_EVALUATION,
-  BUTTER_STAGE_GEOMETRY,
-  BUTTER_STAGE_FRAGMENT,
-  BUTTER_STAGE_MAX
-} butter_shader_stage_t;
-
-typedef struct {
-  butter_shader_stage_t stage;
-  const void *code;
-  const vk_specialization_info_t *spec;
-  const cstr *entry_point;
-  u64 code_size;
-} butter_shader_t;
+typedef enum butter_shader_stage butter_shader_stage_t;
+typedef struct butter_shader butter_shader_t;
 
 typedef struct {
   butter_shader_t *shaders;
@@ -147,6 +133,8 @@ typedef struct {
   b32 compare_enable;
   vk_compare_op_t compare_op;
 } butter_sampler_desc_t;
+
+typedef struct butter_init_config butter_init_config_t;
 
 typedef struct butter_texture butter_texture_t;
 typedef struct butter_texture_registry butter_texture_registry_t;

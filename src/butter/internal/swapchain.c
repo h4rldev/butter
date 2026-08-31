@@ -1,12 +1,111 @@
 #include <htils/basictypes.h>
 #include <vulkan/vulkan.h>
 
+#include <butter/internal/memory.h>
 #include <butter/internal/swapchain.h>
 #include <butter/internal/types.h>
 #include <butter/log.h>
 
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
+
+/**
+ * @brief Creates the depth resources for the context.
+ * @details Creates the depth images, depth image views, and depth memories, and
+ * initializes them.
+ *
+ * @param context The butter context.
+ *
+ * @pre @c context must be a valid butter context.
+ *
+ * @return true on success, false on error.
+ */
+static b32 butter_create_depth_resources(butter_context_t *context) {
+  context->depth_images =
+      arena_alloc_zeroed(context->arena, vk_image_t, context->image_count);
+  context->depth_image_views =
+      arena_alloc_zeroed(context->arena, vk_image_view_t, context->image_count);
+  context->depth_memories = arena_alloc_zeroed(
+      context->arena, vk_device_memory_t, context->image_count);
+
+  vk_image_create_info_t image_create_info = {0};
+  image_create_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+  image_create_info.imageType = VK_IMAGE_TYPE_2D;
+  image_create_info.format = VK_FORMAT_D32_SFLOAT;
+  image_create_info.extent =
+      (vk_extent3d_t){context->extent.width, context->extent.height, 1};
+  image_create_info.mipLevels = 1;
+  image_create_info.arrayLayers = 1;
+  image_create_info.samples = VK_SAMPLE_COUNT_1_BIT;
+  image_create_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+  image_create_info.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+  image_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+  image_create_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+  for (u32 i = 0; i < context->image_count; i++) {
+    vk_result_t res;
+
+    if ((res = vkCreateImage(context->device, &image_create_info, null,
+                             &context->depth_images[i])) != VK_SUCCESS) {
+      butter_log_error("Could not create depth image: %d", res);
+      return false;
+    }
+
+    vk_memory_requirements_t mem_reqs;
+    vkGetImageMemoryRequirements(context->device, context->depth_images[i],
+                                 &mem_reqs);
+
+    i32 mem_type = butter_find_memory_type(context->physical_device,
+                                           mem_reqs.memoryTypeBits,
+                                           VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    if (mem_type == -1) {
+      butter_log_fatal("No device-local memory type for depth image");
+      return false;
+    }
+
+    vk_memory_allocate_info_t alloc_info = {0};
+    alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    alloc_info.allocationSize = mem_reqs.size;
+    alloc_info.memoryTypeIndex = mem_type;
+
+    if ((res = vkAllocateMemory(context->device, &alloc_info, null,
+                                &context->depth_memories[i])) != VK_SUCCESS) {
+      butter_log_error("Could not allocate depth image memory: %d", res);
+      return false;
+    }
+
+    if ((res = vkBindImageMemory(context->device, context->depth_images[i],
+                                 context->depth_memories[i], 0)) !=
+        VK_SUCCESS) {
+      butter_log_error("Could not bind depth image memory: %d", res);
+      return false;
+    }
+
+    vk_image_view_create_info_t image_view_create_info = {0};
+    image_view_create_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    image_view_create_info.image = context->depth_images[i];
+    image_view_create_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    image_view_create_info.format = VK_FORMAT_D32_SFLOAT;
+    image_view_create_info.subresourceRange = (vk_image_subresource_range_t){0};
+    image_view_create_info.subresourceRange.aspectMask =
+        VK_IMAGE_ASPECT_DEPTH_BIT;
+    image_view_create_info.subresourceRange.levelCount = 1;
+    image_view_create_info.subresourceRange.layerCount = 1;
+
+    if ((res = vkCreateImageView(context->device, &image_view_create_info, null,
+                                 &context->depth_image_views[i])) !=
+        VK_SUCCESS) {
+      butter_log_error("Could not create depth image view: %d", res);
+      return false;
+    }
+  }
+
+  return true;
+}
+
+//
+//
+//
 
 void butter_destroy_swapchain_resources(butter_context_t *context) {
   if (context->framebuffers) {
@@ -16,6 +115,28 @@ void butter_destroy_swapchain_resources(butter_context_t *context) {
         context->framebuffers[i] = VK_NULL_HANDLE;
       }
     context->framebuffers = null;
+  }
+
+  if (context->depth_images) {
+    for (u32 i = 0; i < context->image_count; i++)
+      if (context->depth_images[i] != VK_NULL_HANDLE)
+        vkDestroyImage(context->device, context->depth_images[i], null);
+    context->depth_images = null;
+  }
+
+  if (context->depth_image_views) {
+    for (u32 i = 0; i < context->image_count; i++)
+      if (context->depth_image_views[i] != VK_NULL_HANDLE)
+        vkDestroyImageView(context->device, context->depth_image_views[i],
+                           null);
+    context->depth_image_views = null;
+  }
+
+  if (context->depth_memories) {
+    for (u32 i = 0; i < context->image_count; i++)
+      if (context->depth_memories[i] != VK_NULL_HANDLE)
+        vkFreeMemory(context->device, context->depth_memories[i], null);
+    context->depth_memories = null;
   }
 
   if (context->image_views) {
@@ -183,6 +304,9 @@ b32 butter_create_swapchain(butter_context_t *context, u32 latency_cap,
     }
   }
 
+  if (context->enable_depth && !butter_create_depth_resources(context))
+    return false;
+
   vk_attachment_description_t color_att = {0};
   color_att.format = context->format;
   color_att.samples = VK_SAMPLE_COUNT_1_BIT;
@@ -191,19 +315,41 @@ b32 butter_create_swapchain(butter_context_t *context, u32 latency_cap,
   color_att.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
   color_att.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 
+  vk_attachment_description_t atts[2] = {0};
+  atts[0] = color_att;
+
   vk_attachment_reference_t color_ref = {0};
   color_ref.attachment = 0;
   color_ref.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+  vk_attachment_reference_t depth_ref = {0};
 
   vk_subpass_description_t subpass = {0};
   subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
   subpass.colorAttachmentCount = 1;
   subpass.pColorAttachments = &color_ref;
 
+  if (context->enable_depth) {
+    vk_attachment_description_t depth_att = {0};
+    depth_att.format = VK_FORMAT_D32_SFLOAT;
+    depth_att.samples = VK_SAMPLE_COUNT_1_BIT;
+    depth_att.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    depth_att.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    depth_att.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    depth_att.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    depth_att.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    depth_att.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+    atts[1] = depth_att;
+
+    depth_ref.attachment = 1;
+    depth_ref.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+    subpass.pDepthStencilAttachment = &depth_ref;
+  }
+
   vk_render_pass_create_info_t render_pass_create_info = {0};
   render_pass_create_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-  render_pass_create_info.attachmentCount = 1;
-  render_pass_create_info.pAttachments = &color_att;
+  render_pass_create_info.attachmentCount = context->enable_depth ? 2 : 1;
+  render_pass_create_info.pAttachments = atts;
   render_pass_create_info.subpassCount = 1;
   render_pass_create_info.pSubpasses = &subpass;
 
@@ -218,11 +364,16 @@ b32 butter_create_swapchain(butter_context_t *context, u32 latency_cap,
     context->framebuffers = arena_alloc_zeroed(context->arena, vk_framebuffer_t,
                                                context->image_count);
   for (u32 i = 0; i < context->image_count; i++) {
+    vk_image_view_t fb_attachments[2] = {
+        context->image_views[i],
+        context->enable_depth ? context->depth_image_views[i] : VK_NULL_HANDLE,
+    };
+
     vk_framebuffer_create_info_t framebuffer_create_info = {0};
     framebuffer_create_info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
     framebuffer_create_info.renderPass = context->render_pass;
-    framebuffer_create_info.attachmentCount = 1;
-    framebuffer_create_info.pAttachments = &context->image_views[i];
+    framebuffer_create_info.attachmentCount = context->enable_depth ? 2 : 1;
+    framebuffer_create_info.pAttachments = fb_attachments;
     framebuffer_create_info.width = context->extent.width;
     framebuffer_create_info.height = context->extent.height;
     framebuffer_create_info.layers = 1;

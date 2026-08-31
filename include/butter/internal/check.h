@@ -1,9 +1,19 @@
-#ifndef BUTTER_CHECK_H
-#define BUTTER_CHECK_H
+#ifndef BUTTER_INTERNAL_CHECK_H
+#define BUTTER_INTERNAL_CHECK_H
 
-#include <butter/types.h>
+/***********************************/
+
 #include <htils/basictypes.h>
 
+/***********************************/
+
+/**
+ * @brief Check if Vulkan is available.
+ * @details Checks if Vulkan is available using runtime linking, then checking
+ * if some addresses are available.
+ *
+ * @return true if Vulkan is available, false otherwise.
+ */
 b32 butter_is_vulkan_available(void);
 
-#endif // !BUTTER_CHECK_H
+#endif // !BUTTER_INTERNAL_CHECK_H

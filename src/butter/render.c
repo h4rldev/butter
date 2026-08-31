@@ -1,5 +1,9 @@
+/***********************************/
+
+#include <errno.h>
 #include <stdatomic.h>
 #include <threads.h>
+#include <time.h>
 
 #include <butter/internal/check.h>
 #include <butter/internal/init.h>
@@ -11,16 +15,41 @@
 #include <butter/render.h>
 #include <butter/types.h>
 
-#ifndef BUTTER_LATENCY_CAP
-#define BUTTER_LATENCY_CAP 4
-#endif
+/***********************************/
 
+//
+//
+//
+
+/**
+ * @brief Get the current time in nanoseconds.
+ * @details Uses clock_gettime to get the current time, then converts it to
+ * nanoseconds.
+ *
+ * @return The current time in nanoseconds.
+ */
 static u64 get_time_ns(void) {
   struct timespec ts;
   clock_gettime(CLOCK_MONOTONIC, &ts);
   return (u64)ts.tv_sec * 1000000000ULL + (u64)ts.tv_nsec;
 }
 
+//
+//
+//
+
+/**
+ * @brief Limit the frame rate of the application to the target refresh rate.
+ * @details If the target refresh rate is set, this function will limit the
+ * render thread to the target refresh rate based on @c frame_start_ns.
+ *
+ * @param butter The butter context.
+ * @param frame_start_ns The start time of the frame in nanoseconds.
+ *
+ * @pre
+ * - @c butter must be a valid butter context.
+ * - @c frame_start_ns must be a valid start time in nanoseconds.
+ */
 static void butter_limit_frame_rate(butter_t *butter, u64 frame_start_ns) {
   if (!butter || butter->target_refresh_rate <= 0.0f)
     return;
@@ -28,46 +57,117 @@ static void butter_limit_frame_rate(butter_t *butter, u64 frame_start_ns) {
   u64 target_ns = (u64)(1e9f / butter->target_refresh_rate);
   u64 target_end_ns = frame_start_ns + target_ns;
 
-  u64 current_ns = get_time_ns();
-  i64 remaining = (i64)(target_end_ns - current_ns);
+  struct timespec target = {
+      .tv_sec = (time_t)(target_end_ns / 1000000000ULL),
+      .tv_nsec = (long)(target_end_ns % 1000000000ULL),
+  };
 
-  if (remaining > 1000000) {            // 1ms threshold
-    i64 sleep_ns = remaining - 1000000; // Wake up 1ms before the deadline
-    struct timespec ts = {
-        .tv_sec = sleep_ns / 1000000000ULL,
-        .tv_nsec = sleep_ns % 1000000000ULL,
-    };
-    thrd_sleep(&ts, NULL);
-  }
-
-  while (get_time_ns() < target_end_ns)
+  while (clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &target, null) ==
+         EINTR)
     ;
 }
 
+//
+//
+//
+
+/**
+ * @brief Render thread loop.
+ * @details The render thread loop, waits for a frame to be requested, and then
+ * submits and renders the frame.
+ *
+ * @param arg The render context.
+ *
+ * @pre @c arg cannot be empty.
+ *
+ * @return 0 on success, non-zero on error.
+ */
+static int render_thread_loop(void *arg) {
+  butter_context_t *butter = (butter_context_t *)arg;
+
+  while (atomic_load(&butter->render_running)) {
+    mtx_lock(&butter->render_mutex);
+    while (!atomic_load(&butter->frame_requested) &&
+           atomic_load(&butter->render_running)) {
+      cnd_wait(&butter->frame_ready, &butter->render_mutex);
+    }
+
+    if (!atomic_load(&butter->render_running)) {
+      mtx_unlock(&butter->render_mutex);
+      break;
+    }
+
+    atomic_store(&butter->frame_requested, false);
+
+    if (butter->resize_pending) {
+      u32 width = butter->pending_width;
+      u32 height = butter->pending_height;
+      butter->resize_pending = false;
+      butter_resize(butter, width, height);
+    }
+
+    butter_frame_t *frame = butter_begin_frame(butter->render_arena, butter);
+    if (frame) {
+      if (butter->draw_callback)
+        butter->draw_callback(frame->cmd, frame, butter->draw_userdata);
+
+      vk_result_t res = butter_end_frame(butter->render_arena, butter, frame);
+      if (res == VK_ERROR_OUT_OF_DATE_KHR || res == VK_SUBOPTIMAL_KHR) {
+        butter->pending_width = butter->extent.width;
+        butter->pending_height = butter->extent.height;
+        butter->resize_pending = true;
+      }
+    }
+
+    atomic_store(&butter->frame_completed, true);
+    cnd_signal(&butter->frame_done);
+    mtx_unlock(&butter->render_mutex);
+  }
+  return 0;
+}
+
+//
+//
+//
+
+butter_init_config_t butter_init_config_default(void) {
+  return (butter_init_config_t){
+      .app_name = "butter",
+      .use_validation_layers = false,
+      .latency_cap = 0,
+      .width = 0,
+      .height = 0,
+      .dynamic_vbo_size = 0,
+      .dynamic_ibo_size = 0,
+      .pipeline_cache_path = null,
+      .enable_depth = false,
+  };
+}
+
 butter_t *butter_init(arena_t *arena, butter_surface_info_t *surface_info,
-                      cstr *app_name, b32 use_validation_layers, u32 width,
-                      u32 height) {
-  vk_result_t res;
-
+                      const butter_init_config_t *config) {
   butter_log_debug("Initializing butter");
-  if (!arena || !surface_info)
+  if (!arena || !surface_info || !config) {
+    butter_log_error("Invalid arguments");
     return null;
+  }
 
+  vk_result_t res;
   butter_log_debug("Checking for vulkan support");
   if (!butter_is_vulkan_available())
     return null;
 
   butter_log_debug("Creating vulkan instance");
-  vk_instance_t instance = butter_create_instance(
-      arena, app_name, use_validation_layers, surface_info->backend);
+  vk_instance_t instance = butter_create_instance(arena, config->app_name,
+                                                  config->use_validation_layers,
+                                                  surface_info->backend);
   if (!instance) {
     butter_log_fatal("Could not create vulkan instance");
     return null;
   }
 
   butter_log_debug("Creating butter context");
-  butter_t *butter = butter_create(arena, instance, surface_info,
-                                   BUTTER_LATENCY_CAP, width, height);
+  butter_t *butter = butter_create(arena, instance, surface_info, config);
   if (!butter) {
     butter_log_fatal("Could not create butter context");
     return null;
@@ -174,8 +274,14 @@ butter_frame_t *butter_begin_frame(arena_t *arena, butter_t *butter) {
   rp_begin.framebuffer = butter->framebuffers[image_index];
   rp_begin.renderArea.extent = extent;
   rp_begin.renderArea.offset = (vk_offset2d_t){0};
-  rp_begin.clearValueCount = 1;
-  rp_begin.pClearValues = &butter->clear_color;
+
+  vk_clear_value_t clears[2] = {
+      butter->clear_color,
+      (vk_clear_value_t){.depthStencil = {1.0f, 0}},
+  };
+
+  rp_begin.clearValueCount = butter->enable_depth ? 2 : 1;
+  rp_begin.pClearValues = clears;
 
   // butter_log_debug("Beginning render pass");
   vkCmdBeginRenderPass(cmd, &rp_begin, VK_SUBPASS_CONTENTS_INLINE);
@@ -252,49 +358,6 @@ void butter_resize(butter_t *butter, u32 width, u32 height) {
     butter_log_error("Could not allocate command buffers");
 }
 
-static int render_thread_loop(void *arg) {
-  butter_context_t *butter = (butter_context_t *)arg;
-
-  while (atomic_load(&butter->render_running)) {
-    mtx_lock(&butter->render_mutex);
-    while (!atomic_load(&butter->frame_requested) &&
-           atomic_load(&butter->render_running)) {
-      cnd_wait(&butter->frame_ready, &butter->render_mutex);
-    }
-
-    if (!atomic_load(&butter->render_running)) {
-      mtx_unlock(&butter->render_mutex);
-      break;
-    }
-
-    atomic_store(&butter->frame_requested, false);
-
-    if (butter->resize_pending) {
-      u32 width = butter->pending_width;
-      u32 height = butter->pending_height;
-      butter->resize_pending = false;
-      butter_resize(butter, width, height);
-    }
-
-    butter_frame_t *frame = butter_begin_frame(butter->render_arena, butter);
-    if (frame) {
-      if (butter->draw_callback)
-        butter->draw_callback(frame->cmd, frame, butter->draw_userdata);
-
-      vk_result_t res = butter_end_frame(butter->render_arena, butter, frame);
-      if (res == VK_ERROR_OUT_OF_DATE_KHR || res == VK_SUBOPTIMAL_KHR) {
-        butter->pending_width = butter->extent.width;
-        butter->pending_height = butter->extent.height;
-        butter->resize_pending = true;
-      }
-    }
-
-    atomic_store(&butter->frame_completed, true);
-    cnd_signal(&butter->frame_done);
-    mtx_unlock(&butter->render_mutex);
-  }
-  return 0;
-}
 void butter_set_draw_callback(butter_t *butter, butter_draw_callback_t cb,
                               void *userdata) {
   if (!butter)

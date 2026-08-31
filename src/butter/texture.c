@@ -1,29 +1,421 @@
+/***********************************/
+
 #include <htils/arena.h>
+#include <htils/basictypes.h>
 #include <string.h>
 
 #include <butter/graphics.h>
+#include <butter/internal/memory.h>
 #include <butter/internal/types.h>
 #include <butter/log.h>
 #include <butter/texture.h>
 #include <butter/types.h>
 #include <threads.h>
 
-static i32 find_memory_type(vk_physical_device_t physical_device,
-                            u32 memory_type_bits,
-                            vk_memory_property_flags_t required_properties) {
-  vk_physical_device_memory_properties_t mem_props;
-  vkGetPhysicalDeviceMemoryProperties(physical_device, &mem_props);
+/***********************************/
 
-  for (u32 i = 0; i < mem_props.memoryTypeCount; i++) {
-    if ((memory_type_bits & (1 << i)) &&
-        (mem_props.memoryTypes[i].propertyFlags & required_properties) ==
-            required_properties) {
-      return i;
-    }
+/**
+ * @brief Create a new image for a texture.
+ * @details Uses vkCreateImage to create a new image with the provided texture
+ * structure, then allocates and binds the required memory.
+ *
+ * @param butter The butter context.
+ * @param texture The texture to create the image for.
+ *
+ * @pre
+ * - @c butter must be a valid butter context.
+ * - @c texture must be a valid texture.
+ *
+ * @return True if the image was created successfully, false otherwise.
+ */
+static b32 butter_texture_create_image(butter_t *butter,
+                                       butter_texture_t *texture) {
+  vk_image_create_info_t image_info = {0};
+  image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+  image_info.imageType = VK_IMAGE_TYPE_2D;
+  image_info.format = texture->format;
+  image_info.extent = (vk_extent3d_t){texture->width, texture->height, 1};
+  image_info.mipLevels = 1;
+  image_info.arrayLayers = 1;
+  image_info.samples = VK_SAMPLE_COUNT_1_BIT;
+  image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+  image_info.usage =
+      VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+  image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+  image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+  vk_result_t res;
+  if ((res = vkCreateImage(butter->device, &image_info, null,
+                           &texture->image)) != VK_SUCCESS) {
+    butter_log_error("Could not create image: %d", res);
+    return false;
   }
-  butter_log_fatal("Failed to find suitable memory type");
-  return -1;
+
+  vk_memory_requirements_t mem_reqs;
+  vkGetImageMemoryRequirements(butter->device, texture->image, &mem_reqs);
+  i32 mem_type =
+      butter_find_memory_type(butter->physical_device, mem_reqs.memoryTypeBits,
+                              VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+  if (mem_type == -1) {
+    butter_log_fatal("No device-local memory type for texture");
+    return false;
+  }
+
+  vk_memory_allocate_info_t alloc_info = {0};
+  alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+  alloc_info.allocationSize = mem_reqs.size;
+  alloc_info.memoryTypeIndex = mem_type;
+
+  if ((res = vkAllocateMemory(butter->device, &alloc_info, null,
+                              &texture->memory)) != VK_SUCCESS) {
+    butter_log_error("Could not allocate memory for texture: %d", res);
+    return false;
+  }
+
+  if ((res = vkBindImageMemory(butter->device, texture->image, texture->memory,
+                               0)) != VK_SUCCESS) {
+    butter_log_error("Could not bind image memory: %d", res);
+    return false;
+  }
+
+  return true;
 }
+
+//
+//
+//
+
+/**
+ * @brief Create a new image view for a texture.
+ * @details Uses vkCreateImageView to create a new image view with the provided
+ * texture structure.
+ *
+ * @param butter The butter context.
+ * @param texture The texture to create the image view for.
+ *
+ * @pre
+ * - @c butter must be a valid butter context.
+ * - @c texture must be a valid texture.
+ *
+ * @return True if the image view was created successfully, false otherwise.
+ */
+static b32 butter_texture_create_view(butter_t *butter,
+                                      butter_texture_t *texture) {
+  vk_image_view_create_info_t image_view_info = {0};
+  image_view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+  image_view_info.image = texture->image;
+  image_view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+  image_view_info.format = texture->format;
+  image_view_info.subresourceRange = (vk_image_subresource_range_t){0};
+  image_view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+  image_view_info.subresourceRange.levelCount = 1;
+  image_view_info.subresourceRange.layerCount = 1;
+
+  vk_result_t res;
+  if ((res = vkCreateImageView(butter->device, &image_view_info, null,
+                               &texture->view)) != VK_SUCCESS) {
+    butter_log_error("Could not create image view: %d", res);
+    return false;
+  }
+
+  return true;
+}
+
+//
+//
+//
+
+/**
+ * @brief The Upload thread.
+ * @details The upload thread, goes through the upload queue and tries to upload
+ * each texture needed.
+ *
+ * @param userdata The userdata.
+ *
+ * @return 0 on success, non-zero on failure.
+ */
+static int butter_upload_thread(void *userdata) {
+  butter_t *butter = (butter_t *)userdata;
+  vk_result_t res;
+
+  vk_command_buffer_allocate_info_t alloc_info = {0};
+  alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+  alloc_info.commandPool = butter->upload_pool_async;
+  alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+  alloc_info.commandBufferCount = 1;
+
+  vk_command_buffer_t cmd;
+  if ((res = vkAllocateCommandBuffers(butter->device, &alloc_info, &cmd)) !=
+      VK_SUCCESS) {
+    butter_log_error("Could not allocate upload command buffer: %d", res);
+    butter->upload_thread_running = false;
+    return 0;
+  }
+
+  vk_fence_create_info_t fence_info = {0};
+  fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+
+  vk_fence_t fence;
+  if ((res = vkCreateFence(butter->device, &fence_info, null, &fence)) !=
+      VK_SUCCESS) {
+    butter_log_error("Could not create upload fence: %d", res);
+    butter->upload_thread_running = false;
+    return 0;
+  }
+
+  while (butter->upload_thread_running) {
+    mtx_lock(&butter->upload_mutex);
+    while (butter->upload_queue_head == butter->upload_queue_tail &&
+           butter->upload_thread_running)
+      cnd_wait(&butter->upload_ready, &butter->upload_mutex);
+    if (!butter->upload_thread_running) {
+      mtx_unlock(&butter->upload_mutex);
+      break;
+    }
+
+    butter_upload_t *upload = &butter->upload_queue[butter->upload_queue_head];
+    butter->upload_queue_head =
+        (butter->upload_queue_head + 1) % butter->upload_queue_cap;
+
+    mtx_unlock(&butter->upload_mutex);
+
+    if (upload->cancelled || atomic_load(&upload->texture->upload_cancelled)) {
+      butter_destroy_buffer(butter, &upload->staging_buffer);
+      atomic_store(&upload->texture->upload_failed, true);
+      atomic_store(&upload->texture->upload_ready, false);
+      atomic_store(&upload->texture->upload_cancelled, false);
+      continue;
+    }
+
+    if ((res = vkResetCommandBuffer(cmd, 0)) != VK_SUCCESS) {
+      mtx_lock(&butter->upload_mutex);
+      butter_log_error("Could not reset upload command buffer: %d", res);
+      butter_destroy_buffer(butter, &upload->staging_buffer);
+      butter_destroy_texture(butter, upload->texture);
+      upload->failed = true;
+      atomic_store(&upload->texture->upload_failed, true);
+      mtx_unlock(&butter->upload_mutex);
+      continue;
+    }
+
+    vk_command_buffer_begin_info_t begin_info = {0};
+    begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    if ((res = vkBeginCommandBuffer(cmd, &begin_info)) != VK_SUCCESS) {
+      mtx_lock(&butter->upload_mutex);
+      butter_log_error("Could not begin command buffer: %d", res);
+      butter_destroy_buffer(butter, &upload->staging_buffer);
+      butter_destroy_texture(butter, upload->texture);
+      upload->failed = true;
+      atomic_store(&upload->texture->upload_failed, true);
+      mtx_unlock(&butter->upload_mutex);
+      continue;
+    }
+
+    if ((butter->available_vulkan_features &
+         BUTTER_FEATURE_SYNCHRONIZATION_2) == 0) {
+      vk_image_memory_barrier_t barrier_to_dst = {0};
+      barrier_to_dst.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+      barrier_to_dst.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+      barrier_to_dst.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+      barrier_to_dst.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+      barrier_to_dst.image = upload->texture->image;
+      barrier_to_dst.subresourceRange = (vk_image_subresource_range_t){0};
+      barrier_to_dst.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+      barrier_to_dst.subresourceRange.levelCount = 1;
+      barrier_to_dst.subresourceRange.layerCount = 1;
+
+      vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                           VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, null, 0, null,
+                           1, &barrier_to_dst);
+    } else {
+#ifdef VK_API_VERSION_1_3
+      vk_image_memory_barrier2_t barrier_to_dst = {0};
+      barrier_to_dst.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+      barrier_to_dst.srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+      barrier_to_dst.srcAccessMask = 0;
+      barrier_to_dst.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+      barrier_to_dst.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+      barrier_to_dst.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+      barrier_to_dst.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+      barrier_to_dst.image = upload->texture->image;
+      barrier_to_dst.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+      barrier_to_dst.subresourceRange.levelCount = 1;
+      barrier_to_dst.subresourceRange.layerCount = 1;
+
+      vk_dependency_info_t dependency_info = {0};
+      dependency_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+      dependency_info.imageMemoryBarrierCount = 1;
+      dependency_info.pImageMemoryBarriers = &barrier_to_dst;
+      vkCmdPipelineBarrier2(cmd, &dependency_info);
+#else
+      mtx_lock(&butter->upload_mutex);
+      butter_log_fatal("How did you get here?");
+      butter_destroy_buffer(butter, &upload->staging_buffer);
+
+      butter_destroy_texture(butter, upload->texture);
+      upload->failed = true;
+      atomic_store(&upload->texture->upload_failed, true);
+      mtx_unlock(&butter->upload_mutex);
+      continue;
+#endif
+    }
+
+    vk_buffer_image_copy_t region = {0};
+    region.bufferOffset = 0;
+    region.bufferRowLength = upload->texture->width;
+    region.bufferImageHeight = upload->texture->height;
+    region.imageSubresource = (vk_image_subresource_layers_t){0};
+    region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    region.imageSubresource.mipLevel = 0;
+    region.imageSubresource.baseArrayLayer = 0;
+    region.imageSubresource.layerCount = 1;
+    region.imageOffset = (vk_offset3d_t){0, 0, 0};
+    region.imageExtent =
+        (vk_extent3d_t){upload->texture->width, upload->texture->height, 1};
+
+    vkCmdCopyBufferToImage(cmd, upload->staging_buffer.handle,
+                           upload->texture->image,
+                           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+
+    if ((butter->available_vulkan_features &
+         BUTTER_FEATURE_SYNCHRONIZATION_2) == 0) {
+      vk_image_memory_barrier_t barrier_to_shader = {0};
+      barrier_to_shader.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+      barrier_to_shader.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+      barrier_to_shader.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+      barrier_to_shader.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+      barrier_to_shader.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+      barrier_to_shader.image = upload->texture->image;
+      barrier_to_shader.subresourceRange = (vk_image_subresource_range_t){0};
+      barrier_to_shader.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+      barrier_to_shader.subresourceRange.levelCount = 1;
+      barrier_to_shader.subresourceRange.layerCount = 1;
+
+      vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                           VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, null, 0,
+                           null, 1, &barrier_to_shader);
+    } else {
+#ifdef VK_API_VERSION_1_3
+      vk_image_memory_barrier2_t barrier_to_shader = {0};
+      barrier_to_shader.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+      barrier_to_shader.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+      barrier_to_shader.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+      barrier_to_shader.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+      barrier_to_shader.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+      barrier_to_shader.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+      barrier_to_shader.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+      barrier_to_shader.image = upload->texture->image;
+      barrier_to_shader.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+      barrier_to_shader.subresourceRange.levelCount = 1;
+      barrier_to_shader.subresourceRange.layerCount = 1;
+
+      vk_dependency_info_t dependency_info = {0};
+      dependency_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+      dependency_info.imageMemoryBarrierCount = 1;
+      dependency_info.pImageMemoryBarriers = &barrier_to_shader;
+      vkCmdPipelineBarrier2(cmd, &dependency_info);
+#else
+      mtx_lock(&butter->upload_mutex);
+      butter_log_fatal("How did you get here?");
+      butter_destroy_buffer(butter, &upload->staging_buffer);
+
+      butter_destroy_texture(butter, upload->texture);
+      upload->failed = true;
+      atomic_store(&upload->texture->upload_failed, true);
+      mtx_unlock(&butter->upload_mutex);
+      continue;
+#endif
+    }
+
+    if ((res = vkEndCommandBuffer(cmd)) != VK_SUCCESS) {
+      mtx_lock(&butter->upload_mutex);
+      butter_log_error("Could not end command buffer: %d", res);
+      butter_destroy_buffer(butter, &upload->staging_buffer);
+      butter_destroy_texture(butter, upload->texture);
+      upload->failed = true;
+      atomic_store(&upload->texture->upload_failed, true);
+      mtx_unlock(&butter->upload_mutex);
+      continue;
+    }
+
+    if ((butter->available_vulkan_features & BUTTER_FEATURE_PUSH_DESCRIPTORS) ==
+        0) {
+      butter_descriptor_set_t descriptor_set = butter_allocate_descriptor_set(
+          butter, butter->texture_descriptor_pool,
+          butter->texture_descriptor_set_layout);
+      if (descriptor_set.set == VK_NULL_HANDLE) {
+        mtx_lock(&butter->upload_mutex);
+        butter_log_error("Could not allocate descriptor set");
+        butter_destroy_buffer(butter, &upload->staging_buffer);
+        butter_destroy_texture(butter, upload->texture);
+
+        upload->failed = true;
+        atomic_store(&upload->texture->upload_failed, true);
+        mtx_unlock(&butter->upload_mutex);
+        continue;
+      }
+
+      butter_update_descriptor_image(butter, &descriptor_set, 0,
+                                     upload->texture->view,
+                                     upload->texture->sampler);
+
+      upload->texture->descriptor_set = descriptor_set;
+    }
+
+    if ((res = vkResetFences(butter->device, 1, &fence)) != VK_SUCCESS) {
+      mtx_lock(&butter->upload_mutex);
+      butter_log_error("Could not reset upload fence: %d", res);
+      butter_destroy_buffer(butter, &upload->staging_buffer);
+      butter_destroy_texture(butter, upload->texture);
+      upload->failed = true;
+      atomic_store(&upload->texture->upload_failed, true);
+      mtx_unlock(&butter->upload_mutex);
+      continue;
+    }
+
+    vk_submit_info_t submit_info = {0};
+    submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submit_info.commandBufferCount = 1;
+    submit_info.pCommandBuffers = &cmd;
+
+    vkQueueSubmit(butter->queue, 1, &submit_info, fence);
+    if ((res = vkWaitForFences(butter->device, 1, &fence, true, 1000000000)) !=
+        VK_SUCCESS) {
+      mtx_lock(&butter->upload_mutex);
+
+      if (res == VK_TIMEOUT)
+        butter_log_error("Timeout waiting for fence, try again");
+      else
+        butter_log_error("Could not wait for fence: %d", res);
+
+      butter_destroy_buffer(butter, &upload->staging_buffer);
+      butter_destroy_texture(butter, upload->texture);
+      upload->failed = true;
+      atomic_store(&upload->texture->upload_failed, true);
+      mtx_unlock(&butter->upload_mutex);
+      continue;
+    }
+
+    mtx_lock(&butter->upload_mutex);
+
+    butter_destroy_buffer(butter, &upload->staging_buffer);
+
+    upload->ready = true;
+    atomic_store(&upload->texture->upload_ready, true);
+    atomic_store(&upload->texture->upload_failed, false);
+    atomic_store(&upload->texture->upload_cancelled, false);
+    mtx_unlock(&butter->upload_mutex);
+  }
+
+  vkDestroyFence(butter->device, fence, null);
+  vkFreeCommandBuffers(butter->device, butter->upload_pool_async, 1, &cmd);
+  return 0;
+}
+
+//
+//
+//
 
 butter_texture_t *butter_create_texture(butter_t *butter, u32 width, u32 height,
                                         vk_format_t format, const void *data,
@@ -69,53 +461,10 @@ butter_texture_t *butter_create_texture(butter_t *butter, u32 width, u32 height,
   atomic_store(&texture->upload_ready, true);
   atomic_store(&texture->upload_failed, false);
 
-  vk_image_create_info_t image_info = {0};
-  image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-  image_info.imageType = VK_IMAGE_TYPE_2D;
-  image_info.format = format;
-  image_info.extent = (vk_extent3d_t){width, height, 1};
-  image_info.mipLevels = 1;
-  image_info.arrayLayers = 1;
-  image_info.samples = VK_SAMPLE_COUNT_1_BIT;
-  image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
-  image_info.usage =
-      VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-  image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-  image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-
   vk_result_t res;
-  if ((res = vkCreateImage(butter->device, &image_info, null,
-                           &texture->image)) != VK_SUCCESS) {
-    butter_log_error("Could not create image: %d", res);
-    goto fail;
-  }
 
-  vk_memory_requirements_t mem_reqs;
-  vkGetImageMemoryRequirements(butter->device, texture->image, &mem_reqs);
-  i32 mem_type =
-      find_memory_type(butter->physical_device, mem_reqs.memoryTypeBits,
-                       VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-  if (mem_type == -1) {
-    butter_log_error("No device-local memory type for texture");
+  if (!butter_texture_create_image(butter, texture))
     goto fail;
-  }
-
-  vk_memory_allocate_info_t alloc_info = {0};
-  alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-  alloc_info.allocationSize = mem_reqs.size;
-  alloc_info.memoryTypeIndex = mem_type;
-
-  if ((res = vkAllocateMemory(butter->device, &alloc_info, null,
-                              &texture->memory)) != VK_SUCCESS) {
-    butter_log_error("Could not allocate memory for texture: %d", res);
-    goto fail;
-  }
-
-  if ((res = vkBindImageMemory(butter->device, texture->image, texture->memory,
-                               0)) != VK_SUCCESS) {
-    butter_log_error("Could not bind image memory: %d", res);
-    goto fail;
-  }
 
   butter_buffer_t staging_buffer = butter_create_buffer(
       butter, data_size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, true);
@@ -257,7 +606,7 @@ butter_texture_t *butter_create_texture(butter_t *butter, u32 width, u32 height,
   if ((res = vkEndCommandBuffer(cmd)) != VK_SUCCESS) {
     butter_log_error("Could not end command buffer: %d", res);
     butter_destroy_buffer(butter, &staging_buffer);
-    vkFreeCommandBuffers(butter->device, butter->upload_pool_async, 1, &cmd);
+    vkFreeCommandBuffers(butter->device, butter->upload_pool_sync, 1, &cmd);
     goto fail;
   }
 
@@ -301,40 +650,35 @@ butter_texture_t *butter_create_texture(butter_t *butter, u32 width, u32 height,
   vkFreeCommandBuffers(butter->device, butter->upload_pool_sync, 1, &cmd);
   butter_destroy_buffer(butter, &staging_buffer);
 
-  vk_image_view_create_info_t image_view_info = {0};
-  image_view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-  image_view_info.image = texture->image;
-  image_view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-  image_view_info.format = format;
-  image_view_info.subresourceRange = (vk_image_subresource_range_t){0};
-  image_view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-  image_view_info.subresourceRange.levelCount = 1;
-  image_view_info.subresourceRange.layerCount = 1;
-
-  if ((res = vkCreateImageView(butter->device, &image_view_info, null,
-                               &texture->view)) != VK_SUCCESS) {
-    butter_log_error("Could not create image view: %d", res);
+  if (!butter_texture_create_view(butter, texture))
     goto fail;
+
+  if ((butter->available_vulkan_features & BUTTER_FEATURE_PUSH_DESCRIPTORS) ==
+      0) {
+
+    butter_descriptor_set_t descriptor_set =
+        butter_allocate_descriptor_set(butter, butter->texture_descriptor_pool,
+                                       butter->texture_descriptor_set_layout);
+
+    if (descriptor_set.set == VK_NULL_HANDLE) {
+      butter_log_error("Could not allocate descriptor set");
+      goto fail;
+    }
+
+    butter_update_descriptor_image(butter, &descriptor_set, 0, texture->view,
+                                   texture->sampler);
+    texture->descriptor_set = descriptor_set;
   }
-
-  butter_descriptor_set_t descriptor_set =
-      butter_allocate_descriptor_set(butter, butter->texture_descriptor_pool,
-                                     butter->texture_descriptor_set_layout);
-
-  if (descriptor_set.set == VK_NULL_HANDLE) {
-    butter_log_error("Could not allocate descriptor set");
-    goto fail;
-  }
-
-  butter_update_descriptor_image(butter, &descriptor_set, 0, texture->view,
-                                 texture->sampler);
-  texture->descriptor_set = descriptor_set;
   return texture;
 
 fail:
   butter_destroy_texture(butter, texture);
   return null;
 }
+
+//
+//
+//
 
 void butter_destroy_texture(butter_t *butter, butter_texture_t *texture) {
   if (!texture || !butter)
@@ -357,279 +701,13 @@ void butter_destroy_texture(butter_t *butter, butter_texture_t *texture) {
   texture->memory = VK_NULL_HANDLE;
 }
 
-static int butter_upload_thread(void *userdata) {
-  butter_t *butter = (butter_t *)userdata;
-  vk_result_t res;
-
-  while (butter->upload_thread_running) {
-    mtx_lock(&butter->upload_mutex);
-    while (butter->upload_queue_head == butter->upload_queue_tail &&
-           butter->upload_thread_running)
-      cnd_wait(&butter->upload_ready, &butter->upload_mutex);
-    if (!butter->upload_thread_running) {
-      mtx_unlock(&butter->upload_mutex);
-      break;
-    }
-
-    butter_upload_t *upload = &butter->upload_queue[butter->upload_queue_head];
-    butter->upload_queue_head =
-        (butter->upload_queue_head + 1) % butter->upload_queue_cap;
-
-    mtx_unlock(&butter->upload_mutex);
-
-    if (upload->cancelled || atomic_load(&upload->texture->upload_cancelled)) {
-      butter_destroy_buffer(butter, &upload->staging_buffer);
-      atomic_store(&upload->texture->upload_failed, true);
-      atomic_store(&upload->texture->upload_ready, false);
-      atomic_store(&upload->texture->upload_cancelled, false);
-      continue;
-    }
-
-    vk_command_buffer_t cmd;
-    vk_command_buffer_allocate_info_t alloc_info = {0};
-    alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    alloc_info.commandPool = butter->upload_pool_async;
-    alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    alloc_info.commandBufferCount = 1;
-
-    if ((res = vkAllocateCommandBuffers(butter->device, &alloc_info, &cmd)) !=
-        VK_SUCCESS) {
-      mtx_lock(&butter->upload_mutex);
-      butter_log_error("Could not allocate upload command buffer: %d", res);
-      butter_destroy_buffer(butter, &upload->staging_buffer);
-      butter_destroy_texture(butter, upload->texture);
-      upload->failed = true;
-      atomic_store(&upload->texture->upload_failed, true);
-      mtx_unlock(&butter->upload_mutex);
-      continue;
-    }
-
-    vk_command_buffer_begin_info_t begin_info = {0};
-    begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    if ((res = vkBeginCommandBuffer(cmd, &begin_info)) != VK_SUCCESS) {
-      mtx_lock(&butter->upload_mutex);
-      butter_log_error("Could not begin command buffer: %d", res);
-      butter_destroy_buffer(butter, &upload->staging_buffer);
-      butter_destroy_texture(butter, upload->texture);
-      vkFreeCommandBuffers(butter->device, butter->upload_pool_async, 1, &cmd);
-      upload->failed = true;
-      atomic_store(&upload->texture->upload_failed, true);
-      mtx_unlock(&butter->upload_mutex);
-      continue;
-    }
-
-    if ((butter->available_vulkan_features &
-         BUTTER_FEATURE_SYNCHRONIZATION_2) == 0) {
-      vk_image_memory_barrier_t barrier_to_dst = {0};
-      barrier_to_dst.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-      barrier_to_dst.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-      barrier_to_dst.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-      barrier_to_dst.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-      barrier_to_dst.image = upload->texture->image;
-      barrier_to_dst.subresourceRange = (vk_image_subresource_range_t){0};
-      barrier_to_dst.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-      barrier_to_dst.subresourceRange.levelCount = 1;
-      barrier_to_dst.subresourceRange.layerCount = 1;
-
-      vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-                           VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, null, 0, null,
-                           1, &barrier_to_dst);
-    } else {
-#ifdef VK_API_VERSION_1_3
-      vk_image_memory_barrier2_t barrier_to_dst = {0};
-      barrier_to_dst.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-      barrier_to_dst.srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
-      barrier_to_dst.srcAccessMask = 0;
-      barrier_to_dst.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-      barrier_to_dst.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-      barrier_to_dst.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-      barrier_to_dst.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-      barrier_to_dst.image = upload->texture->image;
-      barrier_to_dst.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-      barrier_to_dst.subresourceRange.levelCount = 1;
-      barrier_to_dst.subresourceRange.layerCount = 1;
-
-      vk_dependency_info_t dependency_info = {0};
-      dependency_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-      dependency_info.imageMemoryBarrierCount = 1;
-      dependency_info.pImageMemoryBarriers = &barrier_to_dst;
-      vkCmdPipelineBarrier2(cmd, &dependency_info);
-#else
-      mtx_lock(&butter->upload_mutex);
-      butter_log_fatal("How did you get here?");
-      butter_destroy_buffer(butter, &upload->staging_buffer);
-      vkFreeCommandBuffers(butter->device, butter->upload_pool_async, 1, &cmd);
-
-      butter_destroy_texture(butter, upload->texture);
-      upload->failed = true;
-      atomic_store(&upload->texture->upload_failed, true);
-      mtx_unlock(&butter->upload_mutex);
-      continue;
-#endif
-    }
-
-    vk_buffer_image_copy_t region = {0};
-    region.bufferOffset = 0;
-    region.bufferRowLength = upload->texture->width;
-    region.bufferImageHeight = upload->texture->height;
-    region.imageSubresource = (vk_image_subresource_layers_t){0};
-    region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    region.imageSubresource.mipLevel = 0;
-    region.imageSubresource.baseArrayLayer = 0;
-    region.imageSubresource.layerCount = 1;
-    region.imageOffset = (vk_offset3d_t){0, 0, 0};
-    region.imageExtent =
-        (vk_extent3d_t){upload->texture->width, upload->texture->height, 1};
-
-    vkCmdCopyBufferToImage(cmd, upload->staging_buffer.handle,
-                           upload->texture->image,
-                           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
-
-    if ((butter->available_vulkan_features &
-         BUTTER_FEATURE_SYNCHRONIZATION_2) == 0) {
-      vk_image_memory_barrier_t barrier_to_shader = {0};
-      barrier_to_shader.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-      barrier_to_shader.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-      barrier_to_shader.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-      barrier_to_shader.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-      barrier_to_shader.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-      barrier_to_shader.image = upload->texture->image;
-      barrier_to_shader.subresourceRange = (vk_image_subresource_range_t){0};
-      barrier_to_shader.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-      barrier_to_shader.subresourceRange.levelCount = 1;
-      barrier_to_shader.subresourceRange.layerCount = 1;
-
-      vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                           VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, null, 0,
-                           null, 1, &barrier_to_shader);
-    } else {
-#ifdef VK_API_VERSION_1_3
-      vk_image_memory_barrier2_t barrier_to_shader = {0};
-      barrier_to_shader.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-      barrier_to_shader.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-      barrier_to_shader.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-      barrier_to_shader.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
-      barrier_to_shader.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-      barrier_to_shader.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-      barrier_to_shader.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-      barrier_to_shader.image = upload->texture->image;
-      barrier_to_shader.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-      barrier_to_shader.subresourceRange.levelCount = 1;
-      barrier_to_shader.subresourceRange.layerCount = 1;
-
-      vk_dependency_info_t dependency_info = {0};
-      dependency_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-      dependency_info.imageMemoryBarrierCount = 1;
-      dependency_info.pImageMemoryBarriers = &barrier_to_shader;
-      vkCmdPipelineBarrier2(cmd, &dependency_info);
-#else
-      mtx_lock(&butter->upload_mutex);
-      butter_log_fatal("How did you get here?");
-      butter_destroy_buffer(butter, &upload->staging_buffer);
-      vkFreeCommandBuffers(butter->device, butter->upload_pool_async, 1, &cmd);
-
-      butter_destroy_texture(butter, upload->texture);
-      upload->failed = true;
-      atomic_store(&upload->texture->upload_failed, true);
-      mtx_unlock(&butter->upload_mutex);
-      continue;
-#endif
-    }
-
-    if ((res = vkEndCommandBuffer(cmd)) != VK_SUCCESS) {
-      mtx_lock(&butter->upload_mutex);
-      butter_log_error("Could not end command buffer: %d", res);
-      butter_destroy_buffer(butter, &upload->staging_buffer);
-      butter_destroy_texture(butter, upload->texture);
-      vkFreeCommandBuffers(butter->device, butter->upload_pool_async, 1, &cmd);
-      upload->failed = true;
-      atomic_store(&upload->texture->upload_failed, true);
-      mtx_unlock(&butter->upload_mutex);
-      continue;
-    }
-
-    butter_descriptor_set_t descriptor_set =
-        butter_allocate_descriptor_set(butter, butter->texture_descriptor_pool,
-                                       butter->texture_descriptor_set_layout);
-    if (descriptor_set.set == VK_NULL_HANDLE) {
-      mtx_lock(&butter->upload_mutex);
-      butter_log_error("Could not allocate descriptor set");
-      butter_destroy_buffer(butter, &upload->staging_buffer);
-      vkFreeCommandBuffers(butter->device, butter->upload_pool_async, 1, &cmd);
-      butter_destroy_texture(butter, upload->texture);
-
-      upload->failed = true;
-      atomic_store(&upload->texture->upload_failed, true);
-      mtx_unlock(&butter->upload_mutex);
-      continue;
-    }
-
-    butter_update_descriptor_image(butter, &descriptor_set, 0,
-                                   upload->texture->view,
-                                   upload->texture->sampler);
-
-    upload->texture->descriptor_set = descriptor_set;
-
-    vk_fence_t fence;
-    vk_fence_create_info_t fence_info = {0};
-    fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-
-    if ((res = vkCreateFence(butter->device, &fence_info, null, &fence)) !=
-        VK_SUCCESS) {
-      mtx_lock(&butter->upload_mutex);
-      butter_log_error("Could not create fence: %d", res);
-      butter_destroy_buffer(butter, &upload->staging_buffer);
-      butter_destroy_texture(butter, upload->texture);
-      vkFreeCommandBuffers(butter->device, butter->upload_pool_async, 1, &cmd);
-
-      upload->failed = true;
-      atomic_store(&upload->texture->upload_failed, true);
-      mtx_unlock(&butter->upload_mutex);
-      continue;
-    }
-
-    vk_submit_info_t submit_info = {0};
-    submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submit_info.commandBufferCount = 1;
-    submit_info.pCommandBuffers = &cmd;
-
-    vkQueueSubmit(butter->queue, 1, &submit_info, fence);
-    if ((res = vkWaitForFences(butter->device, 1, &fence, true, 1000000000)) !=
-        VK_SUCCESS) {
-      mtx_lock(&butter->upload_mutex);
-
-      if (res == VK_TIMEOUT)
-        butter_log_error("Timeout waiting for fence, try again");
-      else
-        butter_log_error("Could not wait for fence: %d", res);
-
-      butter_destroy_buffer(butter, &upload->staging_buffer);
-      vkFreeCommandBuffers(butter->device, butter->upload_pool_async, 1, &cmd);
-      butter_destroy_texture(butter, upload->texture);
-      upload->failed = true;
-      atomic_store(&upload->texture->upload_failed, true);
-      mtx_unlock(&butter->upload_mutex);
-      continue;
-    }
-
-    mtx_lock(&butter->upload_mutex);
-
-    vkDestroyFence(butter->device, fence, null);
-    vkFreeCommandBuffers(butter->device, butter->upload_pool_async, 1, &cmd);
-    butter_destroy_buffer(butter, &upload->staging_buffer);
-
-    upload->ready = true;
-    atomic_store(&upload->texture->upload_ready, true);
-    atomic_store(&upload->texture->upload_failed, false);
-    atomic_store(&upload->texture->upload_cancelled, false);
-    mtx_unlock(&butter->upload_mutex);
-  }
-
-  return 0;
-}
-
 void butter_init_texture_upload(butter_t *butter, u32 queue_cap) {
+  if (!butter)
+    return;
+
+  if (butter->upload_thread_running)
+    return;
+
   vk_command_pool_create_info_t pool_info = {0};
   pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
   pool_info.queueFamilyIndex = butter->queue_family;
@@ -654,12 +732,19 @@ void butter_init_texture_upload(butter_t *butter, u32 queue_cap) {
   butter->upload_thread_running = true;
   if (thrd_create(&butter->upload_thread, butter_upload_thread, butter) !=
       thrd_success) {
+    butter_log_error("Could not create upload thread");
     butter->upload_thread_running = false;
     return;
   }
 }
 
 void butter_stop_texture_uploads(butter_t *butter) {
+  if (!butter)
+    return;
+
+  if (butter->upload_thread_running == false)
+    return;
+
   mtx_lock(&butter->upload_mutex);
   butter->upload_thread_running = false;
   cnd_signal(&butter->upload_ready);
@@ -687,54 +772,6 @@ butter_texture_t *butter_submit_texture_upload(butter_t *butter, u32 width,
   atomic_store(&texture->upload_failed, false);
   atomic_store(&texture->upload_cancelled, false);
 
-  vk_image_create_info_t image_info = {0};
-  image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-  image_info.imageType = VK_IMAGE_TYPE_2D;
-  image_info.format = format;
-  image_info.extent = (vk_extent3d_t){width, height, 1};
-  image_info.mipLevels = 1;
-  image_info.arrayLayers = 1;
-  image_info.samples = VK_SAMPLE_COUNT_1_BIT;
-  image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
-  image_info.usage =
-      VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-  image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-  image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-
-  vk_result_t res;
-  if ((res = vkCreateImage(butter->device, &image_info, null,
-                           &texture->image)) != VK_SUCCESS) {
-    butter_log_error("Could not create image: %d", res);
-    goto fail;
-  }
-
-  vk_memory_requirements_t mem_reqs;
-  vkGetImageMemoryRequirements(butter->device, texture->image, &mem_reqs);
-  i32 mem_type =
-      find_memory_type(butter->physical_device, mem_reqs.memoryTypeBits,
-                       VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-  if (mem_type == -1) {
-    butter_log_error("No device-local memory type for texture");
-    goto fail;
-  }
-
-  vk_memory_allocate_info_t alloc_info = {0};
-  alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-  alloc_info.allocationSize = mem_reqs.size;
-  alloc_info.memoryTypeIndex = mem_type;
-
-  if ((res = vkAllocateMemory(butter->device, &alloc_info, null,
-                              &texture->memory)) != VK_SUCCESS) {
-    butter_log_error("Could not allocate memory for texture: %d", res);
-    goto fail;
-  }
-
-  if ((res = vkBindImageMemory(butter->device, texture->image, texture->memory,
-                               0)) != VK_SUCCESS) {
-    butter_log_error("Could not bind image memory: %d", res);
-    goto fail;
-  }
-
   butter_buffer_t staging_buffer = butter_create_buffer(
       butter, data_size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, true);
   if (staging_buffer.handle == VK_NULL_HANDLE) {
@@ -744,21 +781,8 @@ butter_texture_t *butter_submit_texture_upload(butter_t *butter, u32 width,
 
   memcpy(staging_buffer.mapped, data, data_size);
 
-  vk_image_view_create_info_t image_view_info = {0};
-  image_view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-  image_view_info.image = texture->image;
-  image_view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-  image_view_info.format = format;
-  image_view_info.subresourceRange = (vk_image_subresource_range_t){0};
-  image_view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-  image_view_info.subresourceRange.levelCount = 1;
-  image_view_info.subresourceRange.layerCount = 1;
-
-  if ((res = vkCreateImageView(butter->device, &image_view_info, null,
-                               &texture->view)) != VK_SUCCESS) {
-    butter_log_error("Could not create image view: %d", res);
+  if (!butter_texture_create_view(butter, texture))
     goto fail;
-  }
 
   mtx_lock(&butter->upload_mutex);
 
@@ -836,21 +860,6 @@ i32 butter_texture_register(butter_t *butter, butter_texture_t *texture) {
   return id;
 }
 
-butter_texture_t *butter_texture_get(butter_t *butter, i32 id) {
-  if (id < 0) {
-    butter_log_error("Invalid texture ID");
-    return null;
-  }
-
-  for (u32 i = 0; i < butter->texture_registry.count; i++) {
-    if (butter->texture_registry.entries[i].id == (u32)id)
-      return butter->texture_registry.entries[i].texture;
-  }
-
-  butter_log_warning("Can't get texture: Texture ID not found");
-  return null;
-}
-
 void butter_texture_deregister(butter_t *butter, i32 id) {
   if (id < 0) {
     butter_log_error("Invalid texture ID");
@@ -879,4 +888,19 @@ void butter_texture_deregister(butter_t *butter, i32 id) {
   }
 
   butter_log_warning("Can't deregister: Texture ID %d not found", id);
+}
+
+butter_texture_t *butter_texture_get(butter_t *butter, i32 id) {
+  if (id < 0) {
+    butter_log_error("Invalid texture ID");
+    return null;
+  }
+
+  for (u32 i = 0; i < butter->texture_registry.count; i++) {
+    if (butter->texture_registry.entries[i].id == (u32)id)
+      return butter->texture_registry.entries[i].texture;
+  }
+
+  butter_log_warning("Can't get texture: Texture ID not found");
+  return null;
 }

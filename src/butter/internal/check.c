@@ -1,11 +1,13 @@
+/***********************************/
+
 #include <dlfcn.h>
 
+#include <butter/internal/check.h>
 #include <htils/basictypes.h>
 
-#include <butter/internal/check.h>
-#include <butter/internal/types.h>
-
 #include <butter/log.h>
+
+/***********************************/
 
 b32 butter_is_vulkan_available(void) {
   void *lib = dlopen("libvulkan.so.1", RTLD_NOW);

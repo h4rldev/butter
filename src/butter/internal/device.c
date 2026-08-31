@@ -1,9 +1,13 @@
+/***********************************/
+
 #include <htils/basictypes.h>
 
 #include <butter/internal/device.h>
 #include <butter/internal/types.h>
 
 #include <butter/log.h>
+
+/***********************************/
 
 b32 butter_select_physical_device(arena_t *arena, butter_context_t *context) {
   u32 count = 0;

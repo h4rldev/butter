@@ -67,6 +67,8 @@ butter_sampler_desc_t butter_sampler_desc_linear_repeat(void);
  * - Max anisotropy: 0.0f
  * - Compare enable: false
  * - Compare op: VK_COMPARE_OP_NEVER
+ *
+ * @return The new sampler descriptor.
  */
 butter_sampler_desc_t butter_sampler_desc_nearest_clamp(void);
 
@@ -76,6 +78,7 @@ butter_sampler_desc_t butter_sampler_desc_nearest_clamp(void);
 
 /**
  * @brief Create a new sampler descriptor using a preset with anisotropic
+ * filtering.
  *
  * @details Uses the anisotropic preset, with the following settings:
  * - Mag filter: VK_FILTER_LINEAR

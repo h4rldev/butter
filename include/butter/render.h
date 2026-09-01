@@ -34,8 +34,11 @@ butter_init_config_t butter_init_config_default(void);
 /**
  * @brief Initialize the butter context.
  * @details Initializes the butter context with the given arena, surface info,
- * including instance, device, surface, command pool, and command vector. Serves
- * as an abstraction and extension for @ref butter_create, for library users.
+ * and configuration. Creates the Vulkan instance, physical device, logical
+ * device, surface, swapchain, command pool, dynamic vertex/index buffers,
+ * synchronization primitives, and texture registry — the full context in one
+ * call. Serves as the user-facing entry point over the internal
+ * @ref butter_create.
  *
  * @param arena The arena to allocate the context from.
  * @param surface_info The surface info.
@@ -46,7 +49,7 @@ butter_init_config_t butter_init_config_default(void);
  * - @c surface_info must be a valid surface info.
  * - @c config must be a valid init configuration.
  *
- * @return The new butter context.
+ * @return The new butter context, or null on failure.
  */
 butter_t *butter_init(arena_t *arena, butter_surface_info_t *surface_info,
                       const butter_init_config_t *config);
@@ -72,9 +75,14 @@ void butter_end(butter_t *butter);
 
 /**
  * @brief Set the clear color.
- * @details Sets the clear color for the next frame.
+ * @details Sets the clear color used when clearing the swapchain images at the
+ * start of each frame. Colors are in the range 0.0 - 1.0.
  *
  * @param butter The butter context.
+ * @param r The red component.
+ * @param g The green component.
+ * @param b The blue component.
+ * @param a The alpha component.
  *
  * @pre @c butter must be a valid butter context.
  */
@@ -85,10 +93,11 @@ void butter_set_clear_color(butter_t *butter, f32 r, f32 g, f32 b, f32 a);
 //
 
 /**
- * @brief Begin a frame.
- * @details Begins a frame, acquires the next image, begins the render pass and
- * allocates a new frame, not intended for multi-thread use, if you want
- * multithreaded rendering, use @ref butter_start_render_thread instead.
+ * @brief Begin a frame manually.
+ * @details Acquires the next swapchain image, resets and begins the command
+ * buffer, and begins the render pass, returning a new frame. Use this for
+ * manual frame control; alternatively @ref butter_start_render_thread drives
+ * frames automatically.
  *
  * @param arena The arena to allocate the frame from.
  * @param butter The butter context.
@@ -97,7 +106,7 @@ void butter_set_clear_color(butter_t *butter, f32 r, f32 g, f32 b, f32 a);
  * - @c arena must be a valid arena.
  * - @c butter must be a valid butter context.
  *
- * @return The new frame.
+ * @return The new frame, or null if the frame could not be acquired.
  */
 butter_frame_t *butter_begin_frame(arena_t *arena, butter_t *butter);
 
@@ -128,18 +137,19 @@ vk_result_t butter_end_frame(arena_t *arena, butter_t *butter,
 //
 
 /**
- * @brief Schedule a resize.
- * @details Schedules a resize, if the resize is pending, it will be executed,
- * refreshing the render.
+ * @brief Resize the swapchain.
+ * @details Synchronously resizes the swapchain to the given dimensions: waits
+ * for the device to idle, recreates the swapchain, and reallocates the
+ * command buffers. Use @ref butter_set_pending_resize for an async/deferred
+ * resize that the render thread applies.
  *
  * @param butter The butter context.
- * @param width The width.
- * @param height The height.
+ * @param width The new width.
+ * @param height The new height.
  *
  * @pre
  * - @c butter must be a valid butter context.
- * - @c width must be a valid width.
- * - @c height must be a valid height.
+ * - @c width and @c height must be greater than 0.
  */
 void butter_resize(butter_t *butter, u32 width, u32 height);
 
@@ -148,9 +158,11 @@ void butter_resize(butter_t *butter, u32 width, u32 height);
 //
 
 /**
- * @brief Set the draw callback.
- * @details Sets the draw callback for the butter context, for the multi-thread
- * render, not for single-threaded use.
+ * @brief Set the draw callback for the render thread.
+ * @details Sets the callback invoked by the render thread for each frame.
+ * Only used when rendering via @ref butter_start_render_thread; manual
+ * frame control (@ref butter_begin_frame / @ref butter_end_frame) does not
+ * invoke it.
  *
  * @param butter The butter context.
  * @param cb The draw callback.
@@ -159,7 +171,7 @@ void butter_resize(butter_t *butter, u32 width, u32 height);
  * @pre
  * - @c butter must be a valid butter context.
  * - @c cb must be a valid draw callback.
- * - @c userdata must be a valid userdata.
+ * - @c userdata must be a valid pointer or null.
  */
 void butter_set_draw_callback(butter_t *butter, butter_draw_callback_t cb,
                               void *userdata);
@@ -293,17 +305,18 @@ f32 butter_get_target_refresh_rate(const butter_t *butter);
 //
 
 /**
- * @brief Set the pending resize.
- * @details Sets the resize to pending, with the provided width and height.
+ * @brief Set a pending resize.
+ * @details Records a resize request that the render thread applies at the
+ * start of the next frame. Use this for deferred resizes; see
+ * @ref butter_resize for a synchronous resize.
  *
  * @param butter The butter context.
- * @param width The width.
- * @param height The height.
+ * @param width The new width.
+ * @param height The new height.
  *
  * @pre
  * - @c butter must be a valid butter context.
- * - @c width must be a valid width.
- * - @c height must be a valid height.
+ * - @c width and @c height must be greater than 0.
  */
 void butter_set_pending_resize(butter_t *butter, u32 width, u32 height);
 

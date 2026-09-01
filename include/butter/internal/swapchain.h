@@ -12,10 +12,10 @@
 /***********************************/
 
 /**
- * @brief Destroy the swapchain resources used by the context in order for
- * renew.
- * @details Destroys the framebuffers, depth images, depth image views, and
- * image views. Frees the depth memories.
+ * @brief Destroy the swapchain's per-image resources.
+ * @details Destroys the framebuffers, image views, and (if enabled) the depth
+ * images and views, freeing the depth memory. Used to tear down resources
+ * before recreating the swapchain on resize.
  *
  * @param context The butter context.
  *
@@ -29,8 +29,10 @@ void butter_destroy_swapchain_resources(butter_context_t *context);
 
 /**
  * @brief Create the swapchain.
- * @details Queries for capabilities and selects the most fit, then renews the
- * swapchain, if it's not available, it creates it.
+ * @details Queries the surface capabilities, formats, and present modes, then
+ * selects a present mode based on VSync (FIFO when enabled, else MAILBOX or
+ * IMMEDIATE), picks a surface format, and creates the swapchain. If a
+ * swapchain already exists it is recreated in place.
  *
  * @param context The butter context.
  * @param latency_cap The latency cap.
@@ -54,7 +56,9 @@ b32 butter_create_swapchain(butter_context_t *context, u32 latency_cap,
 
 /**
  * @brief Update the render surface.
- * @details Updates the swapchain, if it's out of date, it destroys the old one.
+ * @details Waits for the device to idle, destroys the existing swapchain
+ * resources, and recreates the swapchain at the given dimensions. Also
+ * recreates the timeline semaphore when using timeline synchronization.
  *
  * @param context The butter context.
  * @param latency_cap The latency cap.

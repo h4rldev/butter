@@ -13,8 +13,10 @@
 /**
  * @brief Submit draw commands to the command buffer.
  *
- * @details Processes the draw commands and submits them to the command buffer
- * for drawing.
+ * @details Records the draw commands into the current frame's command buffer.
+ * State (viewport, scissor, pipeline, descriptor set) is bound only when it
+ * changes between consecutive commands, so ordering the commands to group
+ * similar draws minimizes state switches.
  *
  * @param butter The butter context.
  * @param cmds The draw commands to submit.
@@ -34,7 +36,7 @@ void butter_submit_draws(butter_t *butter, const butter_draw_cmd_t *cmds,
 //
 
 /**
- * @brief Allocate vertices from the shared vertex/index buffer for drawing.
+ * @brief Allocate vertices from the shared dynamic vertex buffer.
  *
  * @param butter The butter context.
  * @param vertex_count The amount of vertices to allocate.
@@ -55,9 +57,9 @@ butter_allocation_t butter_alloc_vertices(butter_t *butter, u32 vertex_count,
 //
 
 /**
- * @brief Allocate indices from the shared vertex/index buffer for drawing.
+ * @brief Allocate indices from the shared dynamic index buffer.
  *
- * @details, an extension of @ref butter_alloc_vertices, but the stride is
+ * @details An extension of @ref butter_alloc_vertices, but the stride is
  * determined by the index type.
  *
  * @param butter The butter context.

@@ -47,6 +47,20 @@
 
 /***********************************/
 
+/**
+ * @brief Create a platform surface.
+ * @details Creates the surface for the given backend (Wayland or X11) using
+ * the handles from the surface info.
+ *
+ * @param instance The Vulkan instance.
+ * @param info The surface info.
+ *
+ * @pre
+ * - @c instance must be a valid Vulkan instance.
+ * - @c info must be a valid surface info.
+ *
+ * @return The created surface, or VK_NULL_HANDLE on failure.
+ */
 static vk_surface_khr_t
 create_platform_surface(vk_instance_t instance,
                         const butter_surface_info_t *info) {
@@ -93,6 +107,20 @@ create_platform_surface(vk_instance_t instance,
 //
 //
 
+/**
+ * @brief Initialize the per-frame dynamic vertex buffers.
+ * @details Allocates one host-visible vertex buffer per swapchain image, each
+ * at least @c BUTTER_DYNAMIC_VBO_MIN bytes (floored), and resets the write
+ * offset to 0.
+ *
+ * @param context The butter context.
+ * @param dynamic_vbo_size The requested VBO size; floored at
+ * @c BUTTER_DYNAMIC_VBO_MIN if smaller.
+ *
+ * @pre @c context must be a valid butter context.
+ *
+ * @return true on success, false on error.
+ */
 static b32 butter_init_dynamic_vbos(butter_context_t *context,
                                     u64 dynamic_vbo_size) {
   context->dynamic_vbo_size = dynamic_vbo_size < BUTTER_DYNAMIC_VBO_MIN
@@ -119,6 +147,20 @@ static b32 butter_init_dynamic_vbos(butter_context_t *context,
 //
 //
 
+/**
+ * @brief Initialize the per-frame dynamic index buffers.
+ * @details Allocates one host-visible index buffer per swapchain image, each
+ * at least @c BUTTER_DYNAMIC_IBO_MIN bytes (floored), and resets the write
+ * offset to 0.
+ *
+ * @param context The butter context.
+ * @param dynamic_ibo_size The requested IBO size; floored at
+ * @c BUTTER_DYNAMIC_IBO_MIN if smaller.
+ *
+ * @pre @c context must be a valid butter context.
+ *
+ * @return true on success, false on error.
+ */
 static b32 butter_init_dynamic_ibos(butter_context_t *context,
                                     u64 dynamic_ibo_size) {
   context->dynamic_ibo_size = dynamic_ibo_size < BUTTER_DYNAMIC_IBO_MIN

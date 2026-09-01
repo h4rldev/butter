@@ -277,6 +277,10 @@ struct butter_texture_registry {
 typedef struct {
   struct butter_texture *texture;
   struct butter_buffer staging_buffer;
+  i32 offset_x;
+  i32 offset_y;
+  u32 region_width;
+  u32 region_height;
   b32 ready;
   b32 failed;
   b32 cancelled;

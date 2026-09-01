@@ -141,6 +141,36 @@ void butter_stop_texture_upload(butter_t *butter, butter_texture_t *texture);
 //
 
 /**
+ * @brief Update a sub-region of an existing texture.
+ * @details Stages @c data_size bytes and asynchronously writes them into the
+ * rectangle @c (x, y, w, h) of the texture, leaving the rest untouched. Data
+ * must be tightly packed rows in the texture's format.
+ *
+ * @param butter The butter context.
+ * @param texture The texture to update (image and view already created).
+ * @param x The x offset of the region, in texels.
+ * @param y The y offset of the region, in texels.
+ * @param w The region width, in texels.
+ * @param h The region height, in texels.
+ * @param data The tightly packed pixel data for the region.
+ * @param data_size The size of @c data in bytes; a size smaller than
+ * @c w * @c h * bytes-per-pixel is logged as a warning.
+ *
+ * @pre
+ * - @c butter must be a valid butter context.
+ * - @c texture must be valid, with image and view created.
+ * - @c data must point to @c data_size bytes.
+ * - The region must be fully inside the texture.
+ */
+void butter_update_texture_region(butter_t *butter, butter_texture_t *texture,
+                                  i32 x, i32 y, u32 w, u32 h, const void *data,
+                                  u64 data_size);
+
+//
+//
+//
+
+/**
  * @brief Check if a texture is ready.
  * @details Checks if a texture is ready and has been uploaded.
  *

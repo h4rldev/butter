@@ -261,18 +261,22 @@ static int butter_upload_thread(void *userdata) {
 #endif
     }
 
+    u32 rw =
+        upload->region_width ? upload->region_width : upload->texture->width;
+    u32 rh =
+        upload->region_height ? upload->region_height : upload->texture->height;
+
     vk_buffer_image_copy_t region = {0};
     region.bufferOffset = 0;
-    region.bufferRowLength = upload->texture->width;
-    region.bufferImageHeight = upload->texture->height;
+    region.bufferRowLength = rw;
+    region.bufferImageHeight = rh;
     region.imageSubresource = (vk_image_subresource_layers_t){0};
     region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     region.imageSubresource.mipLevel = 0;
     region.imageSubresource.baseArrayLayer = 0;
     region.imageSubresource.layerCount = 1;
-    region.imageOffset = (vk_offset3d_t){0, 0, 0};
-    region.imageExtent =
-        (vk_extent3d_t){upload->texture->width, upload->texture->height, 1};
+    region.imageOffset = (vk_offset3d_t){upload->offset_x, upload->offset_y, 0};
+    region.imageExtent = (vk_extent3d_t){rw, rh, 1};
 
     vkCmdCopyBufferToImage(cmd, upload->staging_buffer.handle,
                            upload->texture->image,
@@ -411,6 +415,38 @@ static int butter_upload_thread(void *userdata) {
   vkDestroyFence(butter->device, fence, null);
   vkFreeCommandBuffers(butter->device, butter->upload_pool_async, 1, &cmd);
   return 0;
+}
+
+//
+//
+//
+
+/**
+ * @brief Get the number of bytes per pixel depending on the format.
+ *
+ * @param format The format.
+ *
+ * @pre
+ * - @c format must be a valid format, if not, the function will return 0.
+ *
+ * @return The number of bytes per pixel.
+ */
+static u32 butter_texture_bytes_per_pixel(vk_format_t format) {
+  switch (format) {
+  case VK_FORMAT_R8G8B8A8_SRGB:
+  case VK_FORMAT_R8G8B8A8_UNORM:
+  case VK_FORMAT_B8G8R8A8_SRGB:
+  case VK_FORMAT_B8G8R8A8_UNORM:
+    return 4;
+  case VK_FORMAT_R8_UNORM:
+    return 1;
+  case VK_FORMAT_R8G8_UNORM:
+    return 2;
+  case VK_FORMAT_R16G16B16A16_SFLOAT:
+    return 8;
+  default:
+    return 0; // unknown - caller owns the size
+  }
 }
 
 //
@@ -838,6 +874,68 @@ void butter_stop_texture_upload(butter_t *butter, butter_texture_t *texture) {
     idx = (idx + 1) % butter->upload_queue_cap;
   }
 
+  mtx_unlock(&butter->upload_mutex);
+}
+
+void butter_update_texture_region(butter_t *butter, butter_texture_t *texture,
+                                  i32 x, i32 y, u32 w, u32 h, const void *data,
+                                  u64 data_size) {
+  if (!butter || !texture || !data || data_size == 0) {
+    butter_log_error("Invalid arguments");
+    return;
+  }
+
+  if (w == 0 || h == 0) {
+    butter_log_error("Invalid dimensions");
+    return;
+  }
+
+  if ((i32)(x + (i32)w) > (i32)texture->width ||
+      (i32)(y + (i32)h) > (i32)texture->height) {
+    butter_log_error("Region outside of texture bounds");
+    return;
+  }
+
+  u32 bpp = butter_texture_bytes_per_pixel(texture->format);
+  if (bpp != 0 && data_size < (u64)w * h * bpp) {
+    butter_log_warning("Data size (%llu) smaller than expected for %ux%u "
+                       "region (%llu bytes) - possibly wrong format",
+                       (u64)data_size, w, h, (u64)((u64)w * h * bpp));
+  }
+
+  butter_buffer_t staging_buffer = butter_create_buffer(
+      butter, data_size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, true);
+  if (staging_buffer.handle == VK_NULL_HANDLE) {
+    butter_log_error("Could not create staging buffer");
+    return;
+  }
+
+  memcpy(staging_buffer.mapped, data, data_size);
+
+  mtx_lock(&butter->upload_mutex);
+
+  u32 tail = butter->upload_queue_tail;
+  u32 next_tail = (tail + 1) % butter->upload_queue_cap;
+
+  if (next_tail == butter->upload_queue_head) {
+    butter_log_error("Upload queue full");
+    mtx_unlock(&butter->upload_mutex);
+    butter_destroy_buffer(butter, &staging_buffer);
+    return;
+  }
+
+  butter_upload_t *upload = &butter->upload_queue[tail];
+  upload->texture = texture;
+  upload->staging_buffer = staging_buffer;
+  upload->offset_x = x;
+  upload->offset_y = y;
+  upload->region_width = w;
+  upload->region_height = h;
+  upload->ready = false;
+  upload->failed = false;
+  butter->upload_queue_tail = next_tail;
+
+  cnd_signal(&butter->upload_ready);
   mtx_unlock(&butter->upload_mutex);
 }
 

@@ -11,11 +11,18 @@
 /***********************************/
 
 /**
- * @brief Create a new pipeline descriptor from a set of default values.
+ * @brief Create a pipeline descriptor with default values.
+ * @details Initializes the descriptor with the following settings:
+ * - Topology: BUTTER_TOPOLOGY_TRIANGLE_LIST
+ * - Polygon mode: BUTTER_POLYGON_MODE_FILL
+ * - Cull mode: BUTTER_CULL_BACK
+ * - Blend mode: BUTTER_BLEND_NONE
+ * - Front face: BUTTER_FRONT_FACE_CLOCKWISE
+ * - Depth test: true
+ * - Depth write: true
+ * - Vertex stride: 0
  *
- * @details By setting the topology to triangle list, polygon mode to fill, cull
- * mode to back, blend mode to none, front face to clockwise, depth test to
- * true, depth write to true, and vertex stride to 0.
+ * @return The default pipeline descriptor.
  */
 butter_pipeline_desc_t butter_pipeline_desc_default(void);
 

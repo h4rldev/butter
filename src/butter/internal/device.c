@@ -1,5 +1,7 @@
 /***********************************/
 
+#include <string.h>
+
 #include <htils/basictypes.h>
 
 #include <butter/internal/device.h>
@@ -134,6 +136,48 @@ b32 butter_select_physical_device(arena_t *arena, butter_context_t *context) {
     context->available_vulkan_features |= BUTTER_FEATURE_PUSH_DESCRIPTORS;
 #endif
 
+  u32 ext_count = 0;
+  if (vkEnumerateDeviceExtensionProperties(context->physical_device, null,
+                                           &ext_count, null) == VK_SUCCESS &&
+      ext_count > 0) {
+    vk_extension_properties_t *exts = arena_alloc_zeroed(
+        context->arena, vk_extension_properties_t, ext_count);
+    if (vkEnumerateDeviceExtensionProperties(context->physical_device, null,
+                                             &ext_count, exts) == VK_SUCCESS) {
+      for (u32 i = 0; i < ext_count; i++)
+        if (strcmp(exts[i].extensionName,
+                   VK_EXT_MEMORY_BUDGET_EXTENSION_NAME) == 0) {
+          context->available_vulkan_features |= BUTTER_FEATURE_MEMORY_BUDGET;
+          break;
+        }
+    }
+  }
+
+  vk_physical_device_properties_t dev_props = {0};
+  vkGetPhysicalDeviceProperties(context->physical_device, &dev_props);
+
+  context->aa_color_sample_counts =
+      (u32)(dev_props.limits.framebufferColorSampleCounts &
+            dev_props.limits.sampledImageColorSampleCounts);
+  context->aa_max_samples = 1;
+  for (u32 s = 1; s <= 64; s <<= 1)
+    if (context->aa_color_sample_counts & s)
+      context->aa_max_samples = s;
+
+  u32 qf_count = 0;
+  vkGetPhysicalDeviceQueueFamilyProperties(context->physical_device, &qf_count,
+                                           null);
+  if (qf_count > context->queue_family) {
+    vk_queue_family_properties_t *qf_props =
+        arena_alloc_zeroed(arena, vk_queue_family_properties_t, qf_count);
+    vkGetPhysicalDeviceQueueFamilyProperties(context->physical_device,
+                                             &qf_count, qf_props);
+    atomic_store(&context->stats.timestamps_supported,
+                 qf_props[context->queue_family].timestampValidBits > 0);
+  }
+  atomic_store(&context->stats.timestamp_period_ns,
+               dev_props.limits.timestampPeriod);
+
   return true;
 }
 
@@ -217,13 +261,19 @@ b32 butter_create_device(butter_context_t *context) {
 
   const cstr *extensions[] = {
       "VK_KHR_swapchain",
+      VK_EXT_MEMORY_BUDGET_EXTENSION_NAME,
   };
+
+  u32 extension_count =
+      1 + ((context->available_vulkan_features & BUTTER_FEATURE_MEMORY_BUDGET)
+               ? 1
+               : 0);
 
   vk_device_create_info_t device_create_info = {0};
   device_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
   device_create_info.queueCreateInfoCount = 1;
   device_create_info.pQueueCreateInfos = &device_queue_info;
-  device_create_info.enabledExtensionCount = 1;
+  device_create_info.enabledExtensionCount = extension_count;
   device_create_info.ppEnabledExtensionNames = extensions;
   device_create_info.pNext = &enable_features2;
 

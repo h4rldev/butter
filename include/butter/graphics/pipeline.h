@@ -125,23 +125,51 @@ void butter_pipeline_desc_set_vertex_stride(butter_pipeline_desc_t *desc,
  * @brief Create a new render pipeline.
  *
  * @details Uses vkCreateGraphicsPipelines to create a new graphics pipeline
- * with the descriptor passed and the render pass provided.
+ * with the descriptor passed, against the context's current render pass. The
+ * returned handle is owned by butter and stays valid across render-pass changes
+ * (e.g. anti-aliasing switches), which rebuild it in place.
  *
  * @param butter The butter context.
  * @param desc The pipeline descriptor.
- * @param render_pass The render pass to use.
  *
  * @pre
  * - @c butter must be a valid butter context.
  * - @c desc must be a valid pipeline descriptor.
- * - @c render_pass must be a valid render pass.
  *
- * @return The new pipeline.
+ * @return The new pipeline handle, null on failure.
  */
-butter_pipeline_t butter_create_pipeline(butter_t *butter,
-                                         const butter_pipeline_desc_t *desc,
-                                         vk_render_pass_t render_pass);
+butter_pipeline_t *butter_create_pipeline(butter_t *butter,
+                                          const butter_pipeline_desc_t *desc);
 
+//
+//
+//
+
+/**
+ * @brief Whether a pipeline handle is non-null and backed by a live pipeline.
+ *
+ * @param pipeline The pipeline handle (may be @c null).
+ *
+ * @return True if the handle is usable, false otherwise.
+ */
+b32 butter_pipeline_valid(const butter_pipeline_t *pipeline);
+
+//
+//
+//
+
+/**
+ * @brief Destroy and rebuild every registered pipeline.
+ *
+ * @details Rebuilds against the context's current render pass and sample count.
+ * Called when a context-wide resource the pipelines bake in changes (e.g. an
+ * anti-aliasing switch), so callers' handles stay valid.
+ *
+ * @param butter The butter context.
+ *
+ * @pre @c butter must be a valid butter context.
+ */
+void butter_rebuild_pipelines(butter_t *butter);
 //
 //
 //

@@ -107,12 +107,7 @@ typedef struct {
   b32 depth_write;
 } butter_pipeline_desc_t;
 
-typedef struct {
-  vk_pipeline_layout_t layout;
-  vk_pipeline_t pipeline;
-  b32 uses_descriptors;
-} butter_pipeline_t;
-
+typedef struct butter_pipeline butter_pipeline_t;
 typedef struct butter_buffer butter_buffer_t;
 typedef struct butter_descriptor_set butter_descriptor_set_t;
 
@@ -120,6 +115,7 @@ typedef struct {
   vk_buffer_t buffer;
   u64 offset;
   void *mapped;
+  b32 ok;
 } butter_allocation_t;
 
 typedef struct {
@@ -141,7 +137,7 @@ typedef struct butter_texture_registry butter_texture_registry_t;
 typedef struct butter_texture_registry_entry butter_texture_registry_entry_t;
 
 typedef struct {
-  butter_pipeline_t pipeline;
+  butter_pipeline_t *pipeline;
   vk_buffer_t vertex_buffer;
   u32 vertex_count;
   u64 vertex_offset;
@@ -155,5 +151,27 @@ typedef struct {
   vk_rect2d_t scissor;
   b32 scissor_enabled;
 } butter_draw_cmd_t;
+
+typedef struct {
+  f32 cpu_frame_ms;
+  f32 gpu_frame_ms;
+  f32 gpu_usage_pct;
+  f32 frame_rate;
+  u64 vram_total;
+  u64 vram_used;
+  u64 vram_budget;
+  b32 memory_budget_valid;
+} butter_stats_t;
+
+typedef enum {
+  BUTTER_AA_NONE,
+  BUTTER_AA_MSAA,
+  BUTTER_AA_MODE_MAX
+} butter_aa_mode_t;
+
+typedef struct {
+  u32 color_sample_counts;
+  u32 max_samples;
+} butter_aa_caps_t;
 
 #endif // !BUTTER_TYPES_H

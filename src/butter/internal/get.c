@@ -47,13 +47,13 @@ vk_device_t butter_get_device(butter_context_t *context) {
   return context->device;
 }
 
-u32 butter_get_frame_index(butter_context_t *context) {
+u32 butter_get_in_flight_frame_slot(butter_context_t *context) {
   if (!context) {
     butter_log_error("Context is null");
     return 0;
   }
 
-  return context->frame_index;
+  return context->in_flight_frame_slot;
 }
 
 u32 butter_get_image_count(butter_context_t *context) {
@@ -135,18 +135,19 @@ vk_command_pool_t butter_get_cmd_pool(butter_context_t *context) {
   return context->cmd_pool;
 }
 
-vk_command_buffer_t butter_get_cmd(butter_context_t *context, u32 image_index) {
+vk_command_buffer_t butter_get_cmd(butter_context_t *context,
+                                   u32 in_flight_frame_slot) {
   if (!context || !context->cmds) {
     butter_log_error("Context or the command buffers is null");
     return VK_NULL_HANDLE;
   }
 
-  if (image_index >= context->image_count) {
-    butter_log_error("Image index out of bounds, got image index %d, but only "
-                     "%d images exist",
-                     image_index, context->image_count);
+  if (in_flight_frame_slot >= context->frames_in_flight) {
+    butter_log_error("Frame slot out of bounds, got frame slot %d, but only "
+                     "%d frames in flight",
+                     in_flight_frame_slot, context->frames_in_flight);
     return VK_NULL_HANDLE;
   }
 
-  return context->cmds[image_index];
+  return context->cmds[in_flight_frame_slot];
 }

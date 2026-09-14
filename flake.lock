@@ -13,11 +13,29 @@
         "rev": "067cedab96fe6d617f4670d3b4c322116536c5f5",
         "revCount": 36,
         "type": "git",
-        "url": "https://codeberg.org/h4rl/bread"
+        "url": "ssh://git@codeberg.org/h4rl/bread"
       },
       "original": {
         "type": "git",
-        "url": "https://codeberg.org/h4rl/bread"
+        "url": "ssh://git@codeberg.org/h4rl/bread"
+      }
+    },
+    "conjure": {
+      "inputs": {
+        "nixpkgs": "nixpkgs_3"
+      },
+      "locked": {
+        "lastModified": 1789377942,
+        "narHash": "sha256-jggH9J/N0dHkWpqiz8cwxGaJoiYXryv4qQ3VJv+fVsY=",
+        "ref": "refs/heads/main",
+        "rev": "1eb2fbb14f086ec7f988d9c16ad7af1b370d154a",
+        "revCount": 68,
+        "type": "git",
+        "url": "ssh://git@codeberg.org/h4rl/conjure"
+      },
+      "original": {
+        "type": "git",
+        "url": "ssh://git@codeberg.org/h4rl/conjure"
       }
     },
     "flake-utils": {
@@ -114,7 +132,7 @@
     "htils_2": {
       "inputs": {
         "flake-utils": "flake-utils_4",
-        "nixpkgs": "nixpkgs_3"
+        "nixpkgs": "nixpkgs_4"
       },
       "locked": {
         "lastModified": 1788579879,
@@ -164,6 +182,22 @@
     },
     "nixpkgs_3": {
       "locked": {
+        "lastModified": 1786514691,
+        "narHash": "sha256-9dkt1i5JNbEfPb+EjLcSDNs8zqEHQ/1JlSaKgj0SBAg=",
+        "owner": "nixos",
+        "repo": "nixpkgs",
+        "rev": "867dcbc30bafe3c862ef88620f2e7a109d7d3be5",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nixos",
+        "ref": "nixos-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "nixpkgs_4": {
+      "locked": {
         "lastModified": 1778443072,
         "narHash": "sha256-zi7/fsqM/kFdNuED//4WOCUtezGtKKqRNORjMvfwjnA=",
         "owner": "nixos",
@@ -178,13 +212,13 @@
         "type": "github"
       }
     },
-    "nixpkgs_4": {
+    "nixpkgs_5": {
       "locked": {
-        "lastModified": 1788404924,
-        "narHash": "sha256-lhEhY8X5EgkQ/eg6IFz4cc8jRuSYSvnxx1al7d1dvZ0=",
+        "lastModified": 1789149629,
+        "narHash": "sha256-H6GwaZzZf+4npqv0tph94w9tZddSjFjmQrVsW0z78uk=",
         "owner": "nixos",
         "repo": "nixpkgs",
-        "rev": "0968519e14f7aa7d3e9b389682bd74d2b51c8ce8",
+        "rev": "eaad089433ca2bb662274377d33df3d0e51ef28b",
         "type": "github"
       },
       "original": {
@@ -197,9 +231,10 @@
     "root": {
       "inputs": {
         "bread": "bread",
+        "conjure": "conjure",
         "flake-utils": "flake-utils_3",
         "htils": "htils_2",
-        "nixpkgs": "nixpkgs_4"
+        "nixpkgs": "nixpkgs_5"
       }
     },
     "systems": {

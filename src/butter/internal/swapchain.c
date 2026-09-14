@@ -5,6 +5,7 @@
 #include <butter/internal/swapchain.h>
 #include <butter/internal/types.h>
 #include <butter/log.h>
+#include <vulkan/vulkan_core.h>
 
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
@@ -36,7 +37,7 @@ static b32 butter_create_depth_resources(butter_context_t *context) {
       (vk_extent3d_t){context->extent.width, context->extent.height, 1};
   image_create_info.mipLevels = 1;
   image_create_info.arrayLayers = 1;
-  image_create_info.samples = VK_SAMPLE_COUNT_1_BIT;
+  image_create_info.samples = (vk_sample_count_flag_bits_t)context->aa_samples;
   image_create_info.tiling = VK_IMAGE_TILING_OPTIMAL;
   image_create_info.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
   image_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
@@ -107,16 +108,325 @@ static b32 butter_create_depth_resources(butter_context_t *context) {
 //
 //
 
-void butter_destroy_swapchain_resources(butter_context_t *context) {
-  if (context->framebuffers) {
-    for (u32 i = 0; i < context->image_count; i++)
-      if (context->framebuffers[i] != VK_NULL_HANDLE) {
-        vkDestroyFramebuffer(context->device, context->framebuffers[i], null);
-        context->framebuffers[i] = VK_NULL_HANDLE;
-      }
-    context->framebuffers = null;
+/**
+ * @brief Create the multisampled color target.
+ * @details Allocates one multisampled color image, view, and memory per
+ * swapchain image. A no-op when anti-aliasing is off.
+ *
+ * @param context The butter context.
+ *
+ * @pre @c context must be a valid butter context.
+ *
+ * @return true on success, false on error.
+ */
+static b32 butter_create_aa_resources(butter_context_t *context) {
+  if (context->aa_samples <= 1)
+    return true;
+
+  context->aa_color_images =
+      arena_alloc_zeroed(context->arena, vk_image_t, context->image_count);
+  context->aa_color_image_views =
+      arena_alloc_zeroed(context->arena, vk_image_view_t, context->image_count);
+  context->aa_color_memories = arena_alloc_zeroed(
+      context->arena, vk_device_memory_t, context->image_count);
+
+  vk_image_create_info_t image_create_info = {0};
+  image_create_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+  image_create_info.imageType = VK_IMAGE_TYPE_2D;
+  image_create_info.format = context->format;
+  image_create_info.extent =
+      (vk_extent3d_t){context->extent.width, context->extent.height, 1};
+  image_create_info.mipLevels = 1;
+  image_create_info.arrayLayers = 1;
+  image_create_info.samples = (vk_sample_count_flag_bits_t)context->aa_samples;
+  image_create_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+  image_create_info.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+  image_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+  image_create_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+  for (u32 i = 0; i < context->image_count; i++) {
+    vk_result_t res;
+
+    if ((res = vkCreateImage(context->device, &image_create_info, null,
+                             &context->aa_color_images[i])) != VK_SUCCESS) {
+      butter_log_error("Could not create AA color image: %d", res);
+      return false;
+    }
+
+    vk_memory_requirements_t mem_reqs;
+    vkGetImageMemoryRequirements(context->device, context->aa_color_images[i],
+                                 &mem_reqs);
+
+    i32 mem_type = butter_find_memory_type(context->physical_device,
+                                           mem_reqs.memoryTypeBits,
+                                           VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    if (mem_type == -1) {
+      butter_log_fatal("No device-local memory type for AA color image");
+      return false;
+    }
+
+    vk_memory_allocate_info_t alloc_info = {0};
+    alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    alloc_info.allocationSize = mem_reqs.size;
+    alloc_info.memoryTypeIndex = mem_type;
+
+    if ((res = vkAllocateMemory(context->device, &alloc_info, null,
+                                &context->aa_color_memories[i])) !=
+        VK_SUCCESS) {
+      butter_log_error("Could not allocate AA color image memory: %d", res);
+      return false;
+    }
+
+    if ((res = vkBindImageMemory(context->device, context->aa_color_images[i],
+                                 context->aa_color_memories[i], 0)) !=
+        VK_SUCCESS) {
+      butter_log_error("Could not bind AA color image memory: %d", res);
+      return false;
+    }
+
+    vk_image_view_create_info_t image_view_create_info = {0};
+    image_view_create_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    image_view_create_info.image = context->aa_color_images[i];
+    image_view_create_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    image_view_create_info.format = context->format;
+    image_view_create_info.subresourceRange.aspectMask =
+        VK_IMAGE_ASPECT_COLOR_BIT;
+    image_view_create_info.subresourceRange.levelCount = 1;
+    image_view_create_info.subresourceRange.layerCount = 1;
+
+    if ((res = vkCreateImageView(context->device, &image_view_create_info, null,
+                                 &context->aa_color_image_views[i])) !=
+        VK_SUCCESS) {
+      butter_log_error("Could not create AA color image view: %d", res);
+      return false;
+    }
   }
 
+  return true;
+}
+
+//
+//
+//
+
+/**
+ * @brief Destroy the multisampled color target.
+ *
+ * @param context The butter context.
+ *
+ * @pre @c context must be a valid butter context.
+ */
+static void butter_destroy_aa_resources(butter_context_t *context) {
+  if (context->aa_color_images) {
+    for (u32 i = 0; i < context->image_count; i++)
+      if (context->aa_color_images[i] != VK_NULL_HANDLE)
+        vkDestroyImage(context->device, context->aa_color_images[i], null);
+    context->aa_color_images = null;
+  }
+
+  if (context->aa_color_image_views) {
+    for (u32 i = 0; i < context->image_count; i++)
+      if (context->aa_color_image_views[i] != VK_NULL_HANDLE)
+        vkDestroyImageView(context->device, context->aa_color_image_views[i],
+                           null);
+
+    context->aa_color_image_views = null;
+  }
+
+  if (context->aa_color_memories) {
+    for (u32 i = 0; i < context->image_count; i++)
+      if (context->aa_color_memories[i] != VK_NULL_HANDLE)
+        vkFreeMemory(context->device, context->aa_color_memories[i], null);
+    context->aa_color_memories = null;
+  }
+}
+
+//
+//
+//
+
+/**
+ * @brief Create the context's render pass.
+ * @details Builds the render pass for the current sample count: a single color
+ * attachment when anti-aliasing is off, or a multisampled color attachment with
+ * the swapchain image as its resolve target when it is on. The depth
+ * attachment, when enabled, matches the color sample count.
+ *
+ * @param context The butter context.
+ *
+ * @pre @c context must be a valid butter context.
+ *
+ * @return true on success, false on error.
+ */
+static b32 butter_create_render_pass(butter_context_t *context) {
+  b32 msaa = context->aa_samples > 1;
+  vk_sample_count_flag_bits_t samples =
+      (vk_sample_count_flag_bits_t)context->aa_samples;
+
+  vk_attachment_description_t atts[3] = {0};
+  u32 att_count = 0;
+
+  vk_attachment_description_t color_att = {0};
+  color_att.format = context->format;
+  color_att.samples = msaa ? samples : VK_SAMPLE_COUNT_1_BIT;
+  color_att.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+  color_att.storeOp =
+      msaa ? VK_ATTACHMENT_STORE_OP_DONT_CARE : VK_ATTACHMENT_STORE_OP_STORE;
+  color_att.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+  color_att.finalLayout = msaa ? VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+                               : VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+  atts[att_count++] = color_att;
+
+  vk_attachment_reference_t color_ref = {0};
+  color_ref.attachment = 0;
+  color_ref.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+  vk_attachment_reference_t resolve_ref = {0};
+  if (msaa) {
+    vk_attachment_description_t resolve_att = {0};
+    resolve_att.format = context->format;
+    resolve_att.samples = VK_SAMPLE_COUNT_1_BIT;
+    resolve_att.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    resolve_att.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    resolve_att.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    resolve_att.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    atts[att_count] = resolve_att;
+
+    resolve_ref.attachment = att_count;
+    resolve_ref.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    att_count++;
+  }
+
+  vk_attachment_reference_t depth_ref = {0};
+  if (context->enable_depth) {
+    vk_attachment_description_t depth_att = {0};
+    depth_att.format = VK_FORMAT_D32_SFLOAT;
+    depth_att.samples = msaa ? samples : VK_SAMPLE_COUNT_1_BIT;
+    depth_att.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    depth_att.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    depth_att.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    depth_att.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    depth_att.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    depth_att.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+    atts[att_count] = depth_att;
+
+    depth_ref.attachment = att_count;
+    depth_ref.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+    att_count++;
+  }
+
+  vk_subpass_description_t subpass = {0};
+  subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+  subpass.colorAttachmentCount = 1;
+  subpass.pColorAttachments = &color_ref;
+  subpass.pResolveAttachments = msaa ? &resolve_ref : null;
+  subpass.pDepthStencilAttachment = context->enable_depth ? &depth_ref : null;
+
+  vk_render_pass_create_info_t render_pass_create_info = {0};
+  render_pass_create_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+  render_pass_create_info.attachmentCount = att_count;
+  render_pass_create_info.pAttachments = atts;
+  render_pass_create_info.subpassCount = 1;
+  render_pass_create_info.pSubpasses = &subpass;
+
+  vk_result_t res;
+  if ((res = vkCreateRenderPass(context->device, &render_pass_create_info, null,
+                                &context->render_pass)) != VK_SUCCESS) {
+    butter_log_error("Could not create render pass: %d", res);
+    return false;
+  }
+
+  return true;
+}
+
+//
+//
+//
+
+/**
+ * @brief Create the swapchain framebuffers.
+ * @details One framebuffer per swapchain image, including the multisampled
+ * color target (when anti-aliasing is on) and the depth target (when enabled).
+ *
+ * @param context The butter context.
+ *
+ * @pre @c context must be a valid butter context.
+ *
+ * @return true on success, false on error.
+ */
+static b32 butter_create_framebuffers(butter_context_t *context) {
+  if (!context->framebuffers)
+    context->framebuffers = arena_alloc_zeroed(context->arena, vk_framebuffer_t,
+                                               context->image_count);
+
+  for (u32 i = 0; i < context->image_count; i++) {
+    b32 msaa = context->aa_samples > 1;
+
+    vk_image_view_t fb_attachments[3];
+    u32 attachment_count = 0;
+    if (msaa)
+      fb_attachments[attachment_count++] = context->aa_color_image_views[i];
+    fb_attachments[attachment_count++] = context->image_views[i];
+    if (context->enable_depth)
+      fb_attachments[attachment_count++] = context->depth_image_views[i];
+
+    vk_framebuffer_create_info_t framebuffer_create_info = {0};
+    framebuffer_create_info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+    framebuffer_create_info.renderPass = context->render_pass;
+    framebuffer_create_info.attachmentCount = attachment_count;
+    framebuffer_create_info.pAttachments = fb_attachments;
+    framebuffer_create_info.width = context->extent.width;
+    framebuffer_create_info.height = context->extent.height;
+    framebuffer_create_info.layers = 1;
+
+    vk_result_t res;
+    if ((res = vkCreateFramebuffer(context->device, &framebuffer_create_info,
+                                   null, &context->framebuffers[i])) !=
+        VK_SUCCESS) {
+      butter_log_error("Could not create framebuffer: %d", res);
+      return false;
+    }
+  }
+
+  return true;
+}
+
+//
+//
+//
+
+/**
+ * @brief Destroy the swapchain framebuffers.
+ *
+ * @param context The butter context.
+ *
+ * @pre @c context must be a valid butter context.
+ */
+static void butter_destroy_framebuffers(butter_context_t *context) {
+  if (!context->framebuffers)
+    return;
+
+  for (u32 i = 0; i < context->image_count; i++)
+    if (context->framebuffers[i] != VK_NULL_HANDLE) {
+      vkDestroyFramebuffer(context->device, context->framebuffers[i], null);
+      context->framebuffers[i] = VK_NULL_HANDLE;
+    }
+  context->framebuffers = null;
+}
+
+//
+//
+//
+
+/**
+ * @brief Destroy the depth target.
+ *
+ * @param context The butter context.
+ *
+ * @pre @c context must be a valid butter context.
+ */
+static void butter_destroy_depth_resources(butter_context_t *context) {
   if (context->depth_images) {
     for (u32 i = 0; i < context->image_count; i++)
       if (context->depth_images[i] != VK_NULL_HANDLE)
@@ -138,6 +448,16 @@ void butter_destroy_swapchain_resources(butter_context_t *context) {
         vkFreeMemory(context->device, context->depth_memories[i], null);
     context->depth_memories = null;
   }
+}
+
+//
+//
+//
+
+void butter_destroy_swapchain_resources(butter_context_t *context) {
+  butter_destroy_framebuffers(context);
+  butter_destroy_aa_resources(context);
+  butter_destroy_depth_resources(context);
 
   if (context->image_views) {
     for (u32 i = 0; i < context->image_count; i++)
@@ -150,6 +470,36 @@ void butter_destroy_swapchain_resources(butter_context_t *context) {
     context->image_count = 0;
     context->image_views = null;
   }
+}
+
+//
+//
+//
+
+b32 butter_recreate_render_resources(butter_context_t *context) {
+  vk_result_t res = vkDeviceWaitIdle(context->device);
+  if (res != VK_SUCCESS)
+    butter_log_error("Could not wait for device idle");
+
+  butter_destroy_framebuffers(context);
+  butter_destroy_aa_resources(context);
+  butter_destroy_depth_resources(context);
+
+  if (context->render_pass) {
+    vkDestroyRenderPass(context->device, context->render_pass, null);
+    context->render_pass = VK_NULL_HANDLE;
+  }
+
+  if (!butter_create_render_pass(context))
+    return false;
+  if (!butter_create_aa_resources(context))
+    return false;
+  if (context->enable_depth && !butter_create_depth_resources(context))
+    return false;
+  if (!butter_create_framebuffers(context))
+    return false;
+
+  return true;
 }
 
 b32 butter_create_swapchain(butter_context_t *context, u32 latency_cap,
@@ -232,15 +582,15 @@ b32 butter_create_swapchain(butter_context_t *context, u32 latency_cap,
     context->extent.height = 600;
 
   u32 image_count = caps.minImageCount + 1;
-  if (latency_cap > 0 && latency_cap != UINT32_MAX) {
-    u32 capped = MIN(image_count, latency_cap);
-    image_count = MAX(capped, caps.minImageCount);
-  }
-
   if (caps.maxImageCount > 0 && image_count > caps.maxImageCount)
     image_count = caps.maxImageCount;
 
   context->image_count = image_count;
+  u32 frame_depth = latency_cap > 0 && latency_cap != UINT32_MAX
+                        ? MIN(image_count, latency_cap)
+                        : image_count;
+  context->frames_in_flight = MAX(frame_depth, 1u);
+
   vk_swapchain_create_info_khr_t swapchain_create_info = {0};
   swapchain_create_info.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
   swapchain_create_info.surface = context->surface;
@@ -304,87 +654,17 @@ b32 butter_create_swapchain(butter_context_t *context, u32 latency_cap,
     }
   }
 
+  if (!butter_create_aa_resources(context))
+    return false;
+
   if (context->enable_depth && !butter_create_depth_resources(context))
     return false;
 
-  vk_attachment_description_t color_att = {0};
-  color_att.format = context->format;
-  color_att.samples = VK_SAMPLE_COUNT_1_BIT;
-  color_att.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-  color_att.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-  color_att.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-  color_att.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+  if (!context->render_pass && !butter_create_render_pass(context))
+    return false;
 
-  vk_attachment_description_t atts[2] = {0};
-  atts[0] = color_att;
-
-  vk_attachment_reference_t color_ref = {0};
-  color_ref.attachment = 0;
-  color_ref.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-  vk_attachment_reference_t depth_ref = {0};
-
-  vk_subpass_description_t subpass = {0};
-  subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-  subpass.colorAttachmentCount = 1;
-  subpass.pColorAttachments = &color_ref;
-
-  if (context->enable_depth) {
-    vk_attachment_description_t depth_att = {0};
-    depth_att.format = VK_FORMAT_D32_SFLOAT;
-    depth_att.samples = VK_SAMPLE_COUNT_1_BIT;
-    depth_att.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    depth_att.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    depth_att.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    depth_att.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    depth_att.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    depth_att.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-    atts[1] = depth_att;
-
-    depth_ref.attachment = 1;
-    depth_ref.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-    subpass.pDepthStencilAttachment = &depth_ref;
-  }
-
-  vk_render_pass_create_info_t render_pass_create_info = {0};
-  render_pass_create_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-  render_pass_create_info.attachmentCount = context->enable_depth ? 2 : 1;
-  render_pass_create_info.pAttachments = atts;
-  render_pass_create_info.subpassCount = 1;
-  render_pass_create_info.pSubpasses = &subpass;
-
-  if (!context->render_pass)
-    if ((res = vkCreateRenderPass(context->device, &render_pass_create_info,
-                                  null, &context->render_pass)) != VK_SUCCESS) {
-      butter_log_error("Could not create render pass: %d", res);
-      return false;
-    }
-
-  if (!context->framebuffers)
-    context->framebuffers = arena_alloc_zeroed(context->arena, vk_framebuffer_t,
-                                               context->image_count);
-  for (u32 i = 0; i < context->image_count; i++) {
-    vk_image_view_t fb_attachments[2] = {
-        context->image_views[i],
-        context->enable_depth ? context->depth_image_views[i] : VK_NULL_HANDLE,
-    };
-
-    vk_framebuffer_create_info_t framebuffer_create_info = {0};
-    framebuffer_create_info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-    framebuffer_create_info.renderPass = context->render_pass;
-    framebuffer_create_info.attachmentCount = context->enable_depth ? 2 : 1;
-    framebuffer_create_info.pAttachments = fb_attachments;
-    framebuffer_create_info.width = context->extent.width;
-    framebuffer_create_info.height = context->extent.height;
-    framebuffer_create_info.layers = 1;
-
-    if ((res = vkCreateFramebuffer(context->device, &framebuffer_create_info,
-                                   null, &context->framebuffers[i])) !=
-        VK_SUCCESS) {
-      butter_log_error("Could not create framebuffer: %d", res);
-      return false;
-    }
-  }
+  if (!butter_create_framebuffers(context))
+    return false;
 
   return true;
 }
@@ -427,10 +707,16 @@ vk_result_t butter_update_surface(butter_context_t *context, u32 latency_cap,
   }
 
   for (u32 i = 0; i < context->image_count; i++) {
-    vkDestroySemaphore(context->device, context->rendering_finished[i], null);
-    vkDestroySemaphore(context->device, context->image_available[i], null);
+    if (context->rendering_finished[i])
+      vkDestroySemaphore(context->device, context->rendering_finished[i], null);
+  }
+
+  for (u32 i = 0; i < context->frames_in_flight; i++) {
+    if (context->image_available[i])
+      vkDestroySemaphore(context->device, context->image_available[i], null);
     if ((context->available_vulkan_features &
-         BUTTER_FEATURE_TIMELINE_SEMAPHORE) == 0)
+         BUTTER_FEATURE_TIMELINE_SEMAPHORE) == 0 &&
+        context->in_flight_fences[i])
       vkDestroyFence(context->device, context->in_flight_fences[i], null);
   }
 
@@ -446,6 +732,9 @@ vk_result_t butter_update_surface(butter_context_t *context, u32 latency_cap,
                                  &context->rendering_finished[i])) !=
         VK_SUCCESS)
       butter_log_error("Could not create rendering finished semaphore");
+  }
+
+  for (u32 i = 0; i < context->frames_in_flight; i++) {
     if ((res = vkCreateSemaphore(context->device, &semaphore_info, null,
                                  &context->image_available[i])) != VK_SUCCESS)
       butter_log_error("Could not create image available semaphore");
@@ -457,6 +746,6 @@ vk_result_t butter_update_surface(butter_context_t *context, u32 latency_cap,
         butter_log_error("Could not create in flight fence");
   }
 
-  context->frame_index = 0;
+  context->in_flight_frame_slot = 0;
   return VK_SUCCESS;
 }

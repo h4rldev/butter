@@ -1,5 +1,6 @@
 .cache
 .direnv
+.conjure
 result
 **/result/**
 
@@ -12,3 +13,6 @@ compile_commands.json
 output.txt
 triangle.*
 quad.*
+multi
+multi-texture
+single

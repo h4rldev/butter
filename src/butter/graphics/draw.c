@@ -18,7 +18,7 @@ void butter_submit_draws(butter_t *butter, const butter_draw_cmd_t *cmds,
     return;
   }
 
-  vk_command_buffer_t cmd = butter->cmds[butter->frame_index];
+  vk_command_buffer_t cmd = butter->cmds[butter->in_flight_frame_slot];
   if (!cmd) {
     butter_log_error("No command buffer available");
     return;
@@ -43,7 +43,7 @@ void butter_submit_draws(butter_t *butter, const butter_draw_cmd_t *cmds,
   for (u32 i = 0; i < count; i++) {
     const butter_draw_cmd_t *draw = &cmds[i];
 
-    if (draw->pipeline.pipeline == VK_NULL_HANDLE) {
+    if (!draw->pipeline || draw->pipeline->pipeline == VK_NULL_HANDLE) {
       butter_log_error("Draw command has no pipeline");
       continue;
     }
@@ -60,14 +60,14 @@ void butter_submit_draws(butter_t *butter, const butter_draw_cmd_t *cmds,
       scissor_set = true;
     }
 
-    if (draw->pipeline.pipeline != bound_pipeline) {
+    if (draw->pipeline->pipeline != bound_pipeline) {
       vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                        draw->pipeline.pipeline);
-      bound_pipeline = draw->pipeline.pipeline;
+                        draw->pipeline->pipeline);
+      bound_pipeline = draw->pipeline->pipeline;
     }
 
-    if (draw->pipeline.layout != bound_layout) {
-      bound_layout = draw->pipeline.layout;
+    if (draw->pipeline->layout != bound_layout) {
+      bound_layout = draw->pipeline->layout;
       bound_set = VK_NULL_HANDLE;
     }
 
@@ -75,14 +75,14 @@ void butter_submit_draws(butter_t *butter, const butter_draw_cmd_t *cmds,
       vkCmdBindVertexBuffers(cmd, 0, 1, &draw->vertex_buffer,
                              &draw->vertex_offset);
 
-    if (draw->pipeline.uses_descriptors) {
+    if (draw->pipeline->uses_descriptors) {
       if (draw->descriptor_sets && draw->descriptor_set_count > 0) {
         vk_descriptor_set_t sets[draw->descriptor_set_count];
         for (u32 j = 0; j < draw->descriptor_set_count; j++)
           sets[j] = draw->descriptor_sets[j].set;
 
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                draw->pipeline.layout, 0,
+                                draw->pipeline->layout, 0,
                                 draw->descriptor_set_count, sets, 0, null);
       } else {
         butter_texture_t *tex = null;
@@ -109,10 +109,10 @@ void butter_submit_draws(butter_t *butter, const butter_draw_cmd_t *cmds,
             write.pImageInfo = &image_info;
 
             vkCmdPushDescriptorSet(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                   draw->pipeline.layout, 0, 1, &write);
+                                   draw->pipeline->layout, 0, 1, &write);
           } else if (tex->descriptor_set.set != bound_set) {
             vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                    draw->pipeline.layout, 0, 1,
+                                    draw->pipeline->layout, 0, 1,
                                     &tex->descriptor_set.set, 0, null);
             bound_set = tex->descriptor_set.set;
           }
@@ -136,28 +136,36 @@ butter_allocation_t butter_alloc_vertices(butter_t *butter, u32 vertex_count,
     return (butter_allocation_t){0};
   }
 
-  u32 frame_index = butter->frame_index;
+  u32 in_flight_frame_slot = butter->in_flight_frame_slot;
   butter_allocation_t allocation = {0};
 
   u64 size_needed = (u64)vertex_count * stride;
-
   if (butter->dynamic_vbo_offset + size_needed > butter->dynamic_vbo_size) {
-    butter_log_error("Dynamic buffer overflow");
+    butter_log_error(
+        "Dynamic buffer overflow: need %llu bytes at offset %llu, have %u",
+        (u64)size_needed, (u64)butter->dynamic_vbo_offset,
+        butter->dynamic_vbo_size);
+    allocation.ok = false;
     return allocation;
   }
 
-  butter_buffer_t *buffer = &butter->dynamic_vbos[frame_index];
+  butter_buffer_t *buffer = &butter->dynamic_vbos[in_flight_frame_slot];
   allocation.buffer = buffer->handle;
   allocation.offset = butter->dynamic_vbo_offset;
   allocation.mapped = (u8 *)buffer->mapped + butter->dynamic_vbo_offset;
+  allocation.ok = true;
 
   butter->dynamic_vbo_offset += size_needed;
-
   return allocation;
 }
 
 butter_allocation_t butter_alloc_indices(butter_t *butter, u32 index_count,
                                          vk_index_type_t index_type) {
+  if (!butter || index_count == 0) {
+    butter_log_error("Invalid arguments");
+    return (butter_allocation_t){0};
+  }
+
   u32 stride = 0;
   switch (index_type) {
   case VK_INDEX_TYPE_UINT16:
@@ -174,5 +182,25 @@ butter_allocation_t butter_alloc_indices(butter_t *butter, u32 index_count,
     return (butter_allocation_t){0};
   }
 
-  return butter_alloc_vertices(butter, index_count, stride);
+  u32 in_flight_frame_slot = butter->in_flight_frame_slot;
+  butter_allocation_t allocation = {0};
+
+  u64 size_needed = (u64)index_count * stride;
+  if (butter->dynamic_ibo_offset + size_needed > butter->dynamic_ibo_size) {
+    butter_log_error(
+        "Dynamic buffer overflow: need %llu bytes at offset %llu, have %u",
+        (u64)size_needed, (u64)butter->dynamic_ibo_offset,
+        butter->dynamic_ibo_size);
+    allocation.ok = false;
+    return allocation;
+  }
+
+  butter_buffer_t *buffer = &butter->dynamic_ibos[in_flight_frame_slot];
+  allocation.buffer = buffer->handle;
+  allocation.offset = butter->dynamic_ibo_offset;
+  allocation.mapped = (u8 *)buffer->mapped + butter->dynamic_ibo_offset;
+  allocation.ok = true;
+
+  butter->dynamic_ibo_offset += size_needed;
+  return allocation;
 }

@@ -25,6 +25,7 @@ void butter_log(butter_log_level_t level, const cstr *fmt, ...) {
 #ifndef BUTTER_DEBUG
   if (level == BUTTER_LOG_DEBUG)
     return;
+// meow2
 #endif
 
   static cstr level_str[20] = {0};

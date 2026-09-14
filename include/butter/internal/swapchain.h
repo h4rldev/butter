@@ -28,6 +28,25 @@ void butter_destroy_swapchain_resources(butter_context_t *context);
 //
 
 /**
+ * @brief Recreate the render pass and its per-image targets.
+ * @details Waits for the device to idle, tears down the framebuffers,
+ * anti-aliasing and depth targets, and the render pass, then rebuilds them for
+ * the context's current sample count. Used when anti-aliasing changes; the
+ * caller is responsible for rebuilding pipelines afterwards.
+ *
+ * @param context The butter context.
+ *
+ * @pre @c context must be a valid butter context.
+ *
+ * @return true on success, false on error.
+ */
+b32 butter_recreate_render_resources(butter_context_t *context);
+
+//
+//
+//
+
+/**
  * @brief Create the swapchain.
  * @details Queries the surface capabilities, formats, and present modes, then
  * selects a present mode based on VSync (FIFO when enabled, else MAILBOX or

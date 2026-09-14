@@ -8,6 +8,25 @@
 /***********************************/
 
 /**
+ * @brief The pipeline retained data, used for processing.
+ *
+ * @param desc The pipeline descriptor.
+ * @param shaders The shaders.
+ * @param attributes The attributes.
+ * @param descriptor_set_layouts The descriptor set layouts.
+ */
+struct butter_pipeline_retained {
+  butter_pipeline_desc_t desc;
+  struct butter_shader *shaders;
+  butter_attribute_t *attributes;
+  vk_descriptor_set_layout_t *descriptor_set_layouts;
+};
+
+//
+//
+//
+
+/**
  * @brief Get the size of an attribute type.
  * @details Maps the attribute type to the size of the corresponding structure
  *
@@ -339,76 +358,24 @@ static b32 butter_validate_pipeline_desc(const butter_pipeline_desc_t *desc) {
 //
 //
 
-butter_pipeline_desc_t butter_pipeline_desc_default(void) {
-  return (butter_pipeline_desc_t){
-      .shaders = null,
-      .shaders_count = 0,
-      .attributes = null,
-      .attribute_count = 0,
-      .vertex_stride = 0,
-      .descriptor_set_layouts = null,
-      .descriptor_set_layout_count = 0,
-      .topology = BUTTER_TOPOLOGY_TRIANGLE_LIST,
-      .polygon_mode = BUTTER_POLYGON_MODE_FILL,
-      .cull_mode = BUTTER_CULL_BACK,
-      .blend_mode = BUTTER_BLEND_NONE,
-      .front_face = BUTTER_FRONT_FACE_CLOCKWISE,
-      .depth_test = true,
-      .depth_write = true,
-  };
-}
-
-void butter_pipeline_desc_add_shaders(butter_pipeline_desc_t *desc,
-                                      butter_shader_t *shaders,
-                                      u64 shader_count) {
-  desc->shaders_count = shader_count;
-  desc->shaders = shaders;
-}
-
-void butter_pipeline_desc_add_descriptor_set_layouts(
-    butter_pipeline_desc_t *desc, vk_descriptor_set_layout_t *layouts,
-    u32 layout_count) {
-  desc->descriptor_set_layouts = layouts;
-  desc->descriptor_set_layout_count = layout_count;
-}
-
-void butter_pipeline_desc_add_attributes(butter_pipeline_desc_t *desc,
-                                         butter_attribute_t *attributes,
-                                         u32 attribute_count) {
-  desc->attributes = attributes;
-  desc->attribute_count = attribute_count;
-
-  u32 stride = 0;
-  for (u32 i = 0; i < attribute_count; i++) {
-    u32 end = attributes[i].offset + attrib_type_size(attributes[i].type);
-    if (end > stride)
-      stride = end;
-  }
-  desc->vertex_stride = stride;
-}
-
-void butter_pipeline_desc_set_vertex_stride(butter_pipeline_desc_t *desc,
-                                            u32 stride) {
-  desc->vertex_stride = stride;
-}
-
-butter_pipeline_t butter_create_pipeline(butter_t *butter,
-                                         const butter_pipeline_desc_t *desc,
-                                         vk_render_pass_t render_pass) {
-  b32 uses_descriptors = desc->descriptor_set_layout_count > 0;
-  if (desc->shaders_count == 0) {
-    butter_log_error("Can't create pipeline with no shaders");
-    return (butter_pipeline_t){0};
-  }
-
-  if (desc->shaders_count >= BUTTER_STAGE_MAX) {
-    butter_log_error("Can't create pipeline with more than 5 shaders, only 1 "
-                     "shader of each type are allowed.");
-    return (butter_pipeline_t){0};
-  }
-
-  if (!butter_validate_pipeline_desc(desc))
-    return (butter_pipeline_t){0};
+/**
+ * @brief Build a pipeline's Vulkan objects.
+ * @details Creates the pipeline layout and graphics pipeline from the
+ * pipeline's retained descriptor, against the context's current render pass and
+ * sample count.
+ *
+ * @param butter The butter context.
+ * @param p The pipeline to build into.
+ *
+ * @pre
+ * - @c butter must be a valid butter context.
+ * - @c p must hold a retained descriptor.
+ *
+ * @return True on success, false otherwise.
+ */
+static b32 butter_pipeline_build(butter_t *butter, struct butter_pipeline *p) {
+  const butter_pipeline_desc_t *desc = &p->retained->desc;
+  b32 uses_descriptors = p->retained->desc.descriptor_set_layout_count > 0;
 
   for (u32 i = 0; i < desc->shaders_count; i++) {
     if (!desc->shaders[i].entry_point) {
@@ -515,7 +482,9 @@ butter_pipeline_t butter_create_pipeline(butter_t *butter,
 
   vk_pipeline_multisample_state_create_info_t multisample = {0};
   multisample.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-  multisample.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+  multisample.rasterizationSamples =
+      (vk_sample_count_flag_bits_t)(butter->aa_samples ? butter->aa_samples
+                                                       : 1);
   multisample.sampleShadingEnable = VK_FALSE;
 
   vk_pipeline_color_blend_attachment_state_t color_blend_attachments = {0};
@@ -575,7 +544,7 @@ butter_pipeline_t butter_create_pipeline(butter_t *butter,
   pipeline_info.pColorBlendState = &color_blend;
   pipeline_info.pDynamicState = &dynamic_state;
   pipeline_info.layout = layout;
-  pipeline_info.renderPass = render_pass;
+  pipeline_info.renderPass = butter->render_pass;
   pipeline_info.basePipelineHandle = VK_NULL_HANDLE;
   pipeline_info.basePipelineIndex = -1;
 
@@ -591,32 +560,256 @@ butter_pipeline_t butter_create_pipeline(butter_t *butter,
   for (u32 i = 0; i < desc->shaders_count; i++)
     vkDestroyShaderModule(butter->device, modules[i], null);
 
-  return (butter_pipeline_t){
-      .pipeline = pipeline,
-      .layout = layout,
-      .uses_descriptors = uses_descriptors,
-  };
+  p->pipeline = pipeline;
+  p->layout = layout;
+  p->uses_descriptors = uses_descriptors;
+  return true;
 
 fail:
   for (u32 i = 0; i < desc->shaders_count; i++)
     if (modules[i])
       vkDestroyShaderModule(butter->device, modules[i], null);
-  return (butter_pipeline_t){0};
+  return false;
+}
+
+//
+//
+//
+
+/**
+ * @brief Add a pipeline to the context's rebuild registry.
+ * @details Grows the registry as needed. Registered pipelines are rebuilt by
+ * @ref butter_rebuild_pipelines.
+ *
+ * @param butter The butter context.
+ * @param pipeline The pipeline to register.
+ *
+ * @pre
+ * - @c butter must be a valid butter context.
+ * - @c pipeline must be a valid pipeline.
+ */
+static void butter_pipeline_register(butter_t *butter,
+                                     struct butter_pipeline *pipeline) {
+  if (butter->pipeline_count == butter->pipeline_cap) {
+    u32 new_cap = butter->pipeline_cap ? butter->pipeline_cap * 2 : 8;
+    struct butter_pipeline **next =
+        arena_alloc_zeroed(butter->arena, struct butter_pipeline *, new_cap);
+    if (!next) {
+      butter_log_error("Could not grow pipeline registry");
+      return;
+    }
+    for (u32 i = 0; i < butter->pipeline_count; i++)
+      next[i] = butter->pipelines[i];
+    butter->pipelines = next;
+    butter->pipeline_cap = new_cap;
+  }
+  butter->pipelines[butter->pipeline_count++] = pipeline;
+}
+
+//
+//
+//
+
+/**
+ * @brief Remove a pipeline from the context's rebuild registry.
+ * @details Swap-removes the entry; registry order is not preserved.
+ *
+ * @param butter The butter context.
+ * @param pipeline The pipeline to remove.
+ *
+ * @pre
+ * - @c butter must be a valid butter context.
+ * - @c pipeline must be a valid pipeline.
+ */
+static void butter_pipeline_unregister(butter_t *butter,
+                                       struct butter_pipeline *pipeline) {
+  for (u32 i = 0; i < butter->pipeline_count; i++) {
+    if (butter->pipelines[i] == pipeline) {
+      butter->pipelines[i] = butter->pipelines[--butter->pipeline_count];
+      return;
+    }
+  }
+}
+
+//
+//
+//
+
+/**
+ * @brief Destroy a pipeline's Vulkan objects.
+ * @details Destroys the graphics pipeline and its layout, leaving the retained
+ * descriptor intact so the pipeline can be rebuilt.
+ *
+ * @param butter The butter context.
+ * @param pipeline The pipeline whose Vulkan objects to destroy.
+ *
+ * @pre
+ * - @c butter must be a valid butter context.
+ * - @c pipeline must be a valid pipeline.
+ */
+static void butter_pipeline_destroy_vk(butter_t *butter,
+                                       struct butter_pipeline *pipeline) {
+  if (pipeline->layout) {
+    vkDestroyPipelineLayout(butter->device, pipeline->layout, null);
+    pipeline->layout = VK_NULL_HANDLE;
+  }
+  if (pipeline->pipeline) {
+    vkDestroyPipeline(butter->device, pipeline->pipeline, null);
+    pipeline->pipeline = VK_NULL_HANDLE;
+  }
+}
+
+//
+//
+//
+
+butter_pipeline_desc_t butter_pipeline_desc_default(void) {
+  return (butter_pipeline_desc_t){
+      .shaders = null,
+      .shaders_count = 0,
+      .attributes = null,
+      .attribute_count = 0,
+      .vertex_stride = 0,
+      .descriptor_set_layouts = null,
+      .descriptor_set_layout_count = 0,
+      .topology = BUTTER_TOPOLOGY_TRIANGLE_LIST,
+      .polygon_mode = BUTTER_POLYGON_MODE_FILL,
+      .cull_mode = BUTTER_CULL_BACK,
+      .blend_mode = BUTTER_BLEND_NONE,
+      .front_face = BUTTER_FRONT_FACE_CLOCKWISE,
+      .depth_test = true,
+      .depth_write = true,
+  };
+}
+
+void butter_pipeline_desc_add_shaders(butter_pipeline_desc_t *desc,
+                                      butter_shader_t *shaders,
+                                      u64 shader_count) {
+  desc->shaders_count = shader_count;
+  desc->shaders = shaders;
+}
+
+void butter_pipeline_desc_add_descriptor_set_layouts(
+    butter_pipeline_desc_t *desc, vk_descriptor_set_layout_t *layouts,
+    u32 layout_count) {
+  desc->descriptor_set_layouts = layouts;
+  desc->descriptor_set_layout_count = layout_count;
+}
+
+void butter_pipeline_desc_add_attributes(butter_pipeline_desc_t *desc,
+                                         butter_attribute_t *attributes,
+                                         u32 attribute_count) {
+  desc->attributes = attributes;
+  desc->attribute_count = attribute_count;
+
+  u32 stride = 0;
+  for (u32 i = 0; i < attribute_count; i++) {
+    u32 end = attributes[i].offset + attrib_type_size(attributes[i].type);
+    if (end > stride)
+      stride = end;
+  }
+  desc->vertex_stride = stride;
+}
+
+void butter_pipeline_desc_set_vertex_stride(butter_pipeline_desc_t *desc,
+                                            u32 stride) {
+  desc->vertex_stride = stride;
+}
+
+butter_pipeline_t *butter_create_pipeline(butter_t *butter,
+                                          const butter_pipeline_desc_t *desc) {
+  if (!butter || !desc)
+    return null;
+
+  if (desc->shaders_count == 0) {
+    butter_log_error("Can't create pipeline with no shaders");
+    return null;
+  }
+
+  if (desc->shaders_count >= BUTTER_STAGE_MAX) {
+    butter_log_error("Can't create pipeline with more than 5 shaders, only 1 "
+                     "shader of each type are allowed.");
+    return null;
+  }
+
+  if (!butter_validate_pipeline_desc(desc))
+    return null;
+
+  struct butter_pipeline *p =
+      arena_alloc_zeroed(butter->arena, struct butter_pipeline, 1);
+  if (!p) {
+    butter_log_fatal("Could not allocate pipeline");
+    return null;
+  }
+
+  p->retained =
+      arena_alloc_zeroed(butter->arena, struct butter_pipeline_retained, 1);
+  if (!p->retained) {
+    butter_log_fatal("Could not allocate pipeline descriptor");
+    return null;
+  }
+  p->retained->desc = *desc;
+
+  p->retained->shaders = arena_alloc_zeroed(butter->arena, struct butter_shader,
+                                            desc->shaders_count);
+  if (!p->retained->shaders)
+    return null;
+  for (u64 i = 0; i < desc->shaders_count; i++)
+    p->retained->shaders[i] = desc->shaders[i];
+  p->retained->desc.shaders = p->retained->shaders;
+
+  if (desc->attribute_count) {
+    p->retained->attributes = arena_alloc_zeroed(
+        butter->arena, butter_attribute_t, desc->attribute_count);
+    if (!p->retained->attributes)
+      return null;
+    for (u32 i = 0; i < desc->attribute_count; i++)
+      p->retained->attributes[i] = desc->attributes[i];
+    p->retained->desc.attributes = p->retained->attributes;
+  }
+
+  if (desc->descriptor_set_layout_count) {
+    p->retained->descriptor_set_layouts =
+        arena_alloc_zeroed(butter->arena, vk_descriptor_set_layout_t,
+                           desc->descriptor_set_layout_count);
+    if (!p->retained->descriptor_set_layouts)
+      return null;
+    for (u32 i = 0; i < desc->descriptor_set_layout_count; i++)
+      p->retained->descriptor_set_layouts[i] = desc->descriptor_set_layouts[i];
+    p->retained->desc.descriptor_set_layouts =
+        p->retained->descriptor_set_layouts;
+  }
+
+  p->uses_descriptors = desc->descriptor_set_layout_count > 0;
+
+  if (!butter_pipeline_build(butter, p))
+    return null;
+
+  butter_pipeline_register(butter, p);
+  return p;
+}
+
+b32 butter_pipeline_valid(const butter_pipeline_t *pipeline) {
+  return pipeline && pipeline->pipeline != VK_NULL_HANDLE;
+}
+
+void butter_rebuild_pipelines(butter_t *butter) {
+  if (!butter)
+    return;
+
+  for (u32 i = 0; i < butter->pipeline_count; i++) {
+    struct butter_pipeline *p = butter->pipelines[i];
+    butter_pipeline_destroy_vk(butter, p);
+    if (!butter_pipeline_build(butter, p))
+      butter_log_error("Could not rebuild pipeline at index %d", i);
+  }
 }
 
 void butter_destroy_pipeline(butter_t *butter, butter_pipeline_t *pipeline) {
-  butter_log_debug("Destroying pipeline");
-
   if (!butter || !pipeline)
     return;
 
-  if (pipeline->layout) {
-    butter_log_debug("Destroying pipeline layout");
-    vkDestroyPipelineLayout(butter->device, pipeline->layout, null);
-  }
-
-  if (pipeline->pipeline) {
-    butter_log_debug("Destroying graphics pipeline");
-    vkDestroyPipeline(butter->device, pipeline->pipeline, null);
-  }
+  butter_log_debug("Destroying pipeline");
+  butter_pipeline_unregister(butter, pipeline);
+  butter_pipeline_destroy_vk(butter, pipeline);
 }

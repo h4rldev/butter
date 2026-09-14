@@ -1,0 +1,90 @@
+project {
+  name butter
+  language c
+  type library
+  link static
+
+  compile {
+    src "src/butter"
+    standard gnu11
+    include "include"
+    ld_flags -lhtils -lvulkan -ldl
+  }
+
+  profiles {
+    wayland-debug {
+      artifact "butter-wayland-debug"
+      c_flags -DBUTTER_DEBUG -DBUTTER_WAYLAND -ggdb -g -Og -fsanitize=address,undefined,leak -fno-sanitize-recover=all -fno-omit-frame-pointer -fno-optimize-sibling-calls -fsanitize-address-use-after-scope -fno-common -Wall -Wextra -Wpedantic -Wno-unused-parameter
+
+      tests {
+        multi {
+          src "src/test/multi.c"
+          ld_flags -lwayland-client -lwayland-cursor -lxkbcommon -lbread-wayland-release -lm
+        }
+        multi-texture {
+          src "src/test/multi-texture.c"
+          ld_flags -lwayland-client -lwayland-cursor -lxkbcommon -lbread-wayland-release -lm
+        }
+        single {
+          src "src/test/single.c"
+          ld_flags -lwayland-client -lwayland-cursor -lxkbcommon -lbread-wayland-release -lm
+        }
+      }
+    }
+
+    wayland-release {
+      link dynamic
+      c_flags -DBUTTER_WAYLAND -O2
+
+      artifact "butter-wayland"
+    }
+
+    wayland-release-static {
+      c_flags -DBUTTER_WAYLAND -O2
+
+      artifact "butter-wayland-static"
+    }
+
+    x11-debug {
+      link static
+      c_flags -DBUTTER_DEBUG -DBUTTER_X11 -ggdb -g -Og -fsanitize=address,undefined,leak -fno-sanitize-recover=all -fno-omit-frame-pointer -fno-optimize-sibling-calls -fsanitize-address-use-after-scope -fno-common -Wall -Wextra -Wpedantic -Wno-unused-parameter
+
+      artifact "butter-x11-debug"
+
+      tests {
+        multi {
+          src "src/test/multi.c"
+          ld_flags -lxkbcommon -lxkbcommon-x11 -lxcb -lxcb-cursor -lxcb-icccm -lxcb-randr -lbread-x11-release
+        }
+        multi-texture {
+          src "src/test/multi-texture.c"
+          ld_flags -lxkbcommon -lxkbcommon-x11 -lxcb -lxcb-cursor -lxcb-icccm -lxcb-randr -lbread-x11-release
+        }
+        single {
+          src "src/test/single.c"
+          ld_flags -lxkbcommon -lxkbcommon-x11 -lxcb -lxcb-cursor -lxcb-icccm -lxcb-randr -lbread-x11-release
+        }
+      }
+    }
+
+    x11-release {
+      link dynamic
+      c_flags -DBUTTER_X11 -O2
+
+      artifact "butter-x11"
+    }
+
+    x11-release-static {
+      link static
+      c_flags replace -DBUTTER_X11 -O2
+
+      artifact "butter-x11-static"
+    }
+  }
+
+  output {
+    bin "bin"
+    lib "lib"
+    symlink_binaries #true
+  }
+}

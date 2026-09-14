@@ -1,4 +1,5 @@
 #include <limits.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -29,30 +30,82 @@ typedef struct quad_vertex {
   f32 u, v;
 } quad_vertex_t;
 
-static const quad_vertex_t g_quad_vertices[] = {
-    {-0.8f, -0.8f, 0.0f, 1.0f}, // bottom-left
-    {-0.8f, 0.8f, 0.0f, 0.0f},  // top-left
-    {0.8f, 0.8f, 1.0f, 0.0f},   // top-right
-    {0.8f, -0.8f, 1.0f, 1.0f},  // bottom-right
-};
+#define FAN_HALF 0.8f
+#define FAN_RADIUS 0.35f
+#define FAN_EDGE_STEPS 4
+#define FAN_ARC_STEPS 14
 
-static const u32 g_quad_indices[] = {
-    0, 1, 2, // First trian
-    0, 2, 3, // Second trian
-};
+static quad_vertex_t fan_vertex(f32 x, f32 y) {
+  return (quad_vertex_t){x, y, (x + FAN_HALF) / (2.0f * FAN_HALF),
+                         (FAN_HALF - y) / (2.0f * FAN_HALF)};
+}
 
-typedef struct {
+static u32 build_rounded_fan(quad_vertex_t *verts) {
+  const f32 pi = 3.14159265358979323846f;
+  f32 core = FAN_HALF - FAN_RADIUS;
+  u32 n = 0;
+
+  verts[n++] = (quad_vertex_t){0.0f, 0.0f, 0.5f, 0.5f};
+
+  for (u32 i = 0; i <= FAN_EDGE_STEPS; i++) {
+    f32 t = (f32)i / (f32)FAN_EDGE_STEPS;
+    verts[n++] = fan_vertex(-core + 2.0f * core * t, FAN_HALF);
+  }
+  for (u32 i = 1; i <= FAN_ARC_STEPS; i++) {
+    f32 a = (pi / 2.0f) * (1.0f - (f32)i / (f32)FAN_ARC_STEPS);
+    verts[n++] =
+        fan_vertex(core + FAN_RADIUS * cosf(a), core + FAN_RADIUS * sinf(a));
+  }
+  for (u32 i = 1; i <= FAN_EDGE_STEPS; i++) {
+    f32 t = (f32)i / (f32)FAN_EDGE_STEPS;
+    verts[n++] = fan_vertex(FAN_HALF, core - 2.0f * core * t);
+  }
+  for (u32 i = 1; i <= FAN_ARC_STEPS; i++) {
+    f32 a = -(pi / 2.0f) * ((f32)i / (f32)FAN_ARC_STEPS);
+    verts[n++] =
+        fan_vertex(core + FAN_RADIUS * cosf(a), -core + FAN_RADIUS * sinf(a));
+  }
+  for (u32 i = 1; i <= FAN_EDGE_STEPS; i++) {
+    f32 t = (f32)i / (f32)FAN_EDGE_STEPS;
+    verts[n++] = fan_vertex(core - 2.0f * core * t, -FAN_HALF);
+  }
+  for (u32 i = 1; i <= FAN_ARC_STEPS; i++) {
+    f32 a = -(pi / 2.0f) - (pi / 2.0f) * ((f32)i / (f32)FAN_ARC_STEPS);
+    verts[n++] =
+        fan_vertex(-core + FAN_RADIUS * cosf(a), -core + FAN_RADIUS * sinf(a));
+  }
+  for (u32 i = 1; i <= FAN_EDGE_STEPS; i++) {
+    f32 t = (f32)i / (f32)FAN_EDGE_STEPS;
+    verts[n++] = fan_vertex(-FAN_HALF, -core + 2.0f * core * t);
+  }
+  for (u32 i = 1; i <= FAN_ARC_STEPS; i++) {
+    f32 a = pi - (pi / 2.0f) * ((f32)i / (f32)FAN_ARC_STEPS);
+    verts[n++] =
+        fan_vertex(-core + FAN_RADIUS * cosf(a), core + FAN_RADIUS * sinf(a));
+  }
+
+  return n;
+}
+
+typedef struct app_state {
   butter_t *butter;
   bread_window_t *window;
   f32 r;
   f32 g;
   f32 b;
-} bread_event_data_t;
+
+  butter_pipeline_t *pipeline;
+  butter_buffer_t vertex_buffer;
+  butter_buffer_t index_buffer;
+  u32 index_count;
+  f64 last_stats_print_s;
+  b32 needs_redraw;
+} app_state_t;
 
 f32 random_f32(void) { return (f32)rand() / (f32)RAND_MAX; }
 
 void bread_event_callback(bread_event_t *event, void *userdata) {
-  bread_event_data_t *data = (bread_event_data_t *)userdata;
+  app_state_t *data = (app_state_t *)userdata;
 
   switch (event->type) {
   case BREAD_EVENT_WINDOW_CLOSE:
@@ -69,35 +122,43 @@ void bread_event_callback(bread_event_t *event, void *userdata) {
     data->r = random_f32();
     data->g = random_f32();
     data->b = random_f32();
+    data->needs_redraw = true;
     break;
 
   case BREAD_EVENT_KEY_PRESS: {
-    fprintf(stderr, "Key: %i\n", event->data.key.key);
     u32 unicode = bread_event_key_to_unicode(data->window, event);
+    if (unicode == 'a' || unicode == 'A') {
+      u32 samples = butter_get_aa_samples(data->butter);
+      u32 next = samples < 2 ? 2 : samples < 4 ? 4 : samples < 8 ? 8 : 1;
+      butter_set_aa_mode(data->butter,
+                         next > 1 ? BUTTER_AA_MSAA : BUTTER_AA_NONE);
+      butter_set_aa_samples(data->butter, next);
+      butter_log_info("AA: mode=%d samples=%u",
+                      (i32)butter_get_aa_mode(data->butter),
+                      butter_get_aa_samples(data->butter));
+      data->needs_redraw = true;
+      break;
+    }
+
+    fprintf(stderr, "Key: %i\n", event->data.key.key);
     cstr *key_cstring = bread_event_key_to_cstr(data->window, event);
     fprintf(stderr, "unicode: %d\n", unicode);
     fprintf(stderr, "key %s\n", key_cstring);
-
   } break;
   case BREAD_EVENT_WINDOW_RESIZE:
     butter_log_debug("width: %d, height: %d", event->data.resize.width,
                      event->data.resize.height);
     butter_set_pending_resize(data->butter, event->data.resize.width,
                               event->data.resize.height);
+    data->needs_redraw = true;
     break;
   default:
+    fprintf(stderr, "Unhandled event: %d\n", event->type);
     break;
   }
 }
 
-typedef struct quad_resources {
-  butter_pipeline_t pipeline;
-  butter_buffer_t vertex_buffer;
-  butter_buffer_t index_buffer;
-  butter_t *butter;
-} quad_resources_t;
-
-static quad_resources_t *create_quad_resources(butter_t *butter) {
+static app_state_t *create_quad(butter_t *butter) {
   arena_t *arena = butter->arena;
   string *vert =
       read_file(butter->arena, HTILS_STR("./src/test/quad.vert.spv"));
@@ -146,64 +207,87 @@ static quad_resources_t *create_quad_resources(butter_t *butter) {
   desc.descriptor_set_layouts = &butter->texture_descriptor_set_layout;
   desc.descriptor_set_layout_count = 1;
 
-  butter_pipeline_t pipeline =
-      butter_create_pipeline(butter, &desc, butter->render_pass);
-  if (pipeline.pipeline == VK_NULL_HANDLE) {
+  butter_pipeline_t *pipeline = butter_create_pipeline(butter, &desc);
+  if (!butter_pipeline_valid(pipeline)) {
     butter_log_fatal("Failed to create pipeline");
     return null;
   }
 
-  butter_buffer_t vertex_buffer = butter_create_buffer(
-      butter, sizeof(g_quad_vertices), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, true);
+  quad_vertex_t *verts = arena_alloc_zeroed(arena, quad_vertex_t, 512);
+  u32 *indices = arena_alloc_zeroed(arena, u32, 512 * 3);
+
+  u32 vertex_count = build_rounded_fan(verts);
+  u32 perimeter = vertex_count - 1;
+  for (u32 i = 0; i < perimeter; i++) {
+    indices[3 * i + 0] = 0;
+    indices[3 * i + 1] = 1 + i;
+    indices[3 * i + 2] = 1 + ((i + 1) % perimeter);
+  }
+  u32 index_count = perimeter * 3;
+
+  butter_buffer_t vertex_buffer =
+      butter_create_buffer(butter, vertex_count * sizeof(quad_vertex_t),
+                           VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, true);
   if (vertex_buffer.handle == VK_NULL_HANDLE) {
     butter_log_fatal("Failed to create vertex buffer");
     return null;
   }
 
-  butter_buffer_t index_buffer = butter_create_buffer(
-      butter, sizeof(g_quad_indices), VK_BUFFER_USAGE_INDEX_BUFFER_BIT, true);
+  butter_buffer_t index_buffer =
+      butter_create_buffer(butter, index_count * sizeof(u32),
+                           VK_BUFFER_USAGE_INDEX_BUFFER_BIT, true);
   if (index_buffer.handle == VK_NULL_HANDLE) {
     butter_log_fatal("Failed to create index buffer");
     return null;
   }
 
-  memcpy(vertex_buffer.mapped, g_quad_vertices, sizeof(g_quad_vertices));
-  memcpy(index_buffer.mapped, g_quad_indices, sizeof(g_quad_indices));
+  memcpy(vertex_buffer.mapped, verts, vertex_count * sizeof(quad_vertex_t));
+  memcpy(index_buffer.mapped, indices, index_count * sizeof(u32));
 
-  quad_resources_t *resources = arena_alloc_zeroed(arena, quad_resources_t, 1);
+  app_state_t *resources = arena_alloc_zeroed(arena, app_state_t, 1);
   resources->pipeline = pipeline;
   resources->vertex_buffer = vertex_buffer;
   resources->index_buffer = index_buffer;
+  resources->index_count = index_count;
   resources->butter = butter;
   return resources;
 }
 
 void draw_texture(vk_command_buffer_t cmd, const butter_frame_t *frame,
                   void *userdata) {
-  quad_resources_t *resources = (quad_resources_t *)userdata;
+  app_state_t *state = (app_state_t *)userdata;
 
+  struct timespec now;
+  clock_gettime(CLOCK_MONOTONIC, &now);
+  double now_s = (double)now.tv_sec + (double)now.tv_nsec / 1e9;
+  if (now_s - state->last_stats_print_s >= 1.0) {
+    state->last_stats_print_s = now_s;
+    butter_stats_t stats;
+    if (butter_get_stats(state->butter, &stats))
+      butter_log_info(
+          "cpu=%.3fms gpu=%.3fms gpu_usage=%.1f%% fps=%.1f "
+          "vram_used=%llu/%lluMiB budget=%lluMiB valid=%d",
+          stats.cpu_frame_ms, stats.gpu_frame_ms, stats.gpu_usage_pct,
+          stats.frame_rate, (u64)(stats.vram_used >> 20),
+          (u64)(stats.vram_total >> 20), (u64)(stats.vram_budget >> 20),
+          stats.memory_budget_valid);
+  }
   butter_draw_cmd_t draw_cmd = {0};
-  draw_cmd.pipeline = resources->pipeline;
-  draw_cmd.vertex_buffer = resources->vertex_buffer.handle;
+  draw_cmd.pipeline = state->pipeline;
+  draw_cmd.vertex_buffer = state->vertex_buffer.handle;
   draw_cmd.vertex_count = 0;
   draw_cmd.vertex_offset = 0;
-  draw_cmd.index_buffer = resources->index_buffer.handle;
-  draw_cmd.index_count = 6;
+  draw_cmd.index_buffer = state->index_buffer.handle;
+  draw_cmd.index_count = state->index_count;
   draw_cmd.index_type = VK_INDEX_TYPE_UINT32;
   draw_cmd.texture_id = 0;
 
-  butter_submit_draws(resources->butter, &draw_cmd, 1);
+  butter_submit_draws(state->butter, &draw_cmd, 1);
 }
 
 int main(void) {
-  u32 current_frame_arena = 0;
-
   arena_t *arena = arena_new(GiB(4), MiB(16));
-
-  arena_t *per_frame_arenas[2] = {
-      arena_new(GiB(4), MiB(16)),
-      arena_new(GiB(4), MiB(16)),
-  };
+  arena_t *frame_arena = arena_new(GiB(4), MiB(16));
 
   srand((unsigned)time(NULL));
 
@@ -237,51 +321,58 @@ int main(void) {
   }
 
   butter_set_clear_color(butter, 0.0f, 0.0f, 0.0f, 1.0f);
-  quad_resources_t *resources = create_quad_resources(butter);
-  if (!resources) {
-    butter_log_error("Could not create quad resources");
+
+  butter_aa_caps_t aa_caps = butter_get_aa_caps(butter);
+  butter_log_info("AA caps: sample_counts=0x%x max=%u (press A to cycle)",
+                  aa_caps.color_sample_counts, aa_caps.max_samples);
+
+  app_state_t *state = create_quad(butter);
+  if (!state) {
+    butter_log_error("Could not create quad");
     return 1;
   }
 
-  bread_event_data_t *event_data = arena_alloc(arena, bread_event_data_t, 1);
-  event_data->butter = butter;
-  event_data->window = &window;
+  state->butter = butter;
+  state->window = &window;
+  state->needs_redraw = true;
 
-  butter_set_draw_callback(butter, draw_texture, resources);
+  butter_set_draw_callback(butter, draw_texture, state);
 
-  bread_window_set_event_callback(&window, bread_event_callback, event_data);
+  bread_window_set_event_callback(&window, bread_event_callback, state);
   bread_window_set_min_size(&window, 600, 600);
 
   butter_set_vsync(butter, true);
-  butter_set_target_refresh_rate(butter, 165.0f);
-
-  butter_start_render_thread(butter, per_frame_arenas[current_frame_arena]);
+  butter_start_render_thread(butter, frame_arena);
   while (bread_window_should_close(&window) == false) {
     bread_window_poll(&window);
 
-    butter_set_clear_color(butter, event_data->r, event_data->g, event_data->b,
-                           1.0f);
+    if (state->needs_redraw) {
+      state->needs_redraw = false;
 
-    butter_request_frame(butter);
+      butter_set_clear_color(butter, state->r, state->g, state->b, 1.0f);
+      butter_request_frame(butter);
 
-    // butter_log_debug("Clearing per frame arena: %d", current_frame_arena);
-    arena_clear(per_frame_arenas[current_frame_arena]);
-    current_frame_arena = (current_frame_arena + 1) % 2;
+      while (!butter_frame_completed(butter)) {
+        bread_window_poll(&window);
+        thrd_sleep(&(struct timespec){.tv_nsec = 1000000}, null);
+      }
+
+      arena_clear(frame_arena);
+    }
   }
 
   butter_stop_render_thread(butter);
 
   vkDeviceWaitIdle(butter->device);
 
-  butter_destroy_pipeline(butter, &resources->pipeline);
-  butter_destroy_buffer(butter, &resources->vertex_buffer);
-  butter_destroy_buffer(butter, &resources->index_buffer);
+  butter_destroy_pipeline(butter, state->pipeline);
+  butter_destroy_buffer(butter, &state->vertex_buffer);
+  butter_destroy_buffer(butter, &state->index_buffer);
 
   butter_end(butter);
   bread_window_destroy(&window);
 
-  arena_free(per_frame_arenas[0]);
-  arena_free(per_frame_arenas[1]);
+  arena_free(frame_arena);
   arena_free(arena);
 
   return 0;

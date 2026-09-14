@@ -106,7 +106,7 @@ void bread_event_callback(bread_event_t *event, void *userdata) {
 }
 
 typedef struct triangle_resources {
-  butter_pipeline_t pipeline;
+  butter_pipeline_t *pipeline;
   butter_buffer_t vertex_buffer;
   butter_t *butter;
 } triangle_resources_t;
@@ -157,9 +157,8 @@ static triangle_resources_t *create_triangle_resources(butter_t *butter) {
 
   desc.cull_mode = BUTTER_CULL_NONE;
 
-  butter_pipeline_t pipeline =
-      butter_create_pipeline(butter, &desc, butter->render_pass);
-  if (pipeline.pipeline == VK_NULL_HANDLE) {
+  butter_pipeline_t *pipeline = butter_create_pipeline(butter, &desc);
+  if (!butter_pipeline_valid(pipeline)) {
     butter_log_fatal("Failed to create pipeline");
     return null;
   }
@@ -275,7 +274,7 @@ int main(void) {
 
   vkDeviceWaitIdle(butter->device);
 
-  butter_destroy_pipeline(butter, &resources->pipeline);
+  butter_destroy_pipeline(butter, resources->pipeline);
   butter_destroy_buffer(butter, &resources->vertex_buffer);
 
   butter_end(butter);

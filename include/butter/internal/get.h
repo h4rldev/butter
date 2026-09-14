@@ -47,15 +47,15 @@ vk_device_t butter_get_device(butter_context_t *context);
 //
 
 /**
- * @brief Get the frame index from the context.
+ * @brief Get the current in flight frame slot.
  *
  * @param context The butter context.
  *
  * @pre @c context must be a valid butter context.
  *
- * @return The frame index.
+ * @return The in flight frame slot.
  */
-u32 butter_get_frame_index(butter_context_t *context);
+u32 butter_get_in_flight_frame_slot(butter_context_t *context);
 
 //
 //
@@ -186,17 +186,19 @@ vk_command_pool_t butter_get_cmd_pool(butter_context_t *context);
 //
 
 /**
- * @brief Get the command buffer from the context for the given image index.
+ * @brief Get the command buffer from the context for the given in flight frame
+ * slot.
  *
  * @param context The butter context.
- * @param image_index The image index.
+ * @param in_flight_frame_slot The in flight frame slot.
  *
  * @pre
  * - @c context must be a valid butter context.
- * - @c image_index must be a valid image index.
+ * - @c in_flight_frame_slot must be a valid in flight frame slot.
  *
  * @return The command buffer.
  */
-vk_command_buffer_t butter_get_cmd(butter_context_t *context, u32 image_index);
+vk_command_buffer_t butter_get_cmd(butter_context_t *context,
+                                   u32 in_flight_frame_slot);
 
 #endif // !BUTTER_INTERNAL_GET_H

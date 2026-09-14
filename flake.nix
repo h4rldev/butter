@@ -4,7 +4,8 @@
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs?ref=nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
-    bread.url = "git+https://codeberg.org/h4rl/bread";
+    conjure.url = "git+ssh://git@codeberg.org/h4rl/conjure";
+    bread.url = "git+ssh://git@codeberg.org/h4rl/bread";
     htils.url = "github:h4rldev/htils";
   };
 
@@ -14,6 +15,7 @@
     nixpkgs,
     bread,
     htils,
+    conjure,
   }:
     flake-utils.lib.eachDefaultSystem (system: let
       pkgs = import nixpkgs {inherit system;};
@@ -26,8 +28,9 @@
         src = ./.;
 
         nativeBuildInputs = [
-          pkgs.just
+          conjure.packages.${system}.default
           pkgs.gcc
+          pkgs.vulkan-loader
           pkgs.vulkan-headers
           pkgs.wayland
 
@@ -37,8 +40,7 @@
         buildPhase = ''
           runHook preBuild
 
-          sed -i 's|#!/usr/bin/env bash|#!${pkgs.bash}/bin/bash|' justfile
-          just release wayland
+          conjure as wayland-release build
 
           runHook postBuild
         '';
@@ -46,10 +48,13 @@
         installPhase = ''
           runHook preInstall
 
-          mkdir -p $out/lib
+          mkdir -p $out/lib/pkgconfig
           mkdir -p $out/include/butter
 
-          cp lib/libbutter-wayland-release.so $out/lib
+          mkdir -p $out/lib/pkgconfig
+          sed -e "s|^prefix=.*|prefix=$out|" -e "s|^libdir=.*|libdir=$out/lib|" lib/wayland-release/pkgconfig/butter-wayland.pc > $out/lib/pkgconfig/butter-wayland.pc
+
+          cp lib/wayland-release/libbutter-wayland.so $out/lib
           cp -r include/butter/* $out/include/butter
 
           runHook postInstall
@@ -63,7 +68,7 @@
         src = ./.;
 
         nativeBuildInputs = [
-          pkgs.just
+          conjure.packages.${system}.default
           pkgs.gcc
           pkgs.vulkan-headers
           pkgs.wayland
@@ -74,8 +79,7 @@
         buildPhase = ''
           runHook preBuild
 
-          sed -i 's|#!/usr/bin/env bash|#!${pkgs.bash}/bin/bash|' justfile
-          just release wayland false static
+          conjure as wayland-release-static build
 
           runHook postBuild
         '';
@@ -83,10 +87,11 @@
         installPhase = ''
           runHook preInstall
 
-          mkdir -p $out/lib
+          mkdir -p $out/lib/pkgconfig
           mkdir -p $out/include/butter
+          sed -e "s|^prefix=.*|prefix=$out|" -e "s|^libdir=.*|libdir=$out/lib|" lib/wayland-release-static/pkgconfig/butter-wayland-static.pc > $out/lib/pkgconfig/butter-wayland-static.pc
 
-          cp lib/libbutter-wayland-release.a $out/lib
+          cp lib/wayland-release-static/libbutter-wayland-static.a $out/lib
           cp -r include/butter/* $out/include/butter
 
           runHook postInstall
@@ -100,7 +105,7 @@
         src = ./.;
 
         nativeBuildInputs = [
-          pkgs.just
+          conjure.packages.${system}.default
           pkgs.gcc
           pkgs.vulkan-headers
           pkgs.wayland
@@ -111,8 +116,7 @@
         buildPhase = ''
           runHook preBuild
 
-          sed -i 's|#!/usr/bin/env bash|#!${pkgs.bash}/bin/bash|' justfile
-          just debug wayland
+          conjure as wayland-debug build
 
           runHook postBuild
         '';
@@ -120,10 +124,11 @@
         installPhase = ''
           runHook preInstall
 
-          mkdir -p $out/lib
+          mkdir -p $out/lib/pkgconfig
           mkdir -p $out/include/butter
 
-          cp lib/libbutter-wayland-debug.a $out/lib
+          sed -e "s|^prefix=.*|prefix=$out|" -e "s|^libdir=.*|libdir=$out/lib|" lib/wayland-debug/pkgconfig/butter-wayland-debug.pc > $out/lib/pkgconfig/butter-wayland-debug.pc
+          cp lib/wayland-debug/libbutter-wayland-debug.a $out/lib
           cp -r include/butter/* $out/include/butter
 
           runHook postInstall
@@ -137,8 +142,9 @@
         src = ./.;
 
         nativeBuildInputs = [
-          pkgs.just
+          conjure.packages.${system}.default
           pkgs.gcc
+          pkgs.vulkan-loader
           pkgs.vulkan-headers
           pkgs.libxcb
 
@@ -148,8 +154,7 @@
         buildPhase = ''
           runHook preBuild
 
-          sed -i 's|#!/usr/bin/env bash|#!${pkgs.bash}/bin/bash|' justfile
-          just release x11
+          conjure as x11-release build
 
           runHook postBuild
         '';
@@ -157,10 +162,11 @@
         installPhase = ''
           runHook preInstall
 
-          mkdir -p $out/lib
+          mkdir -p $out/lib/pkgconfig
           mkdir -p $out/include/butter
 
-          cp lib/libbutter-x11-release.so $out/lib
+          sed -e "s|^prefix=.*|prefix=$out|" -e "s|^libdir=.*|libdir=$out/lib|" lib/x11-release/pkgconfig/butter-x11.pc > $out/lib/pkgconfig/butter-x11.pc
+          cp lib/x11-release/libbutter-x11.so $out/lib
           cp -r include/butter/* $out/include/butter
 
           runHook postInstall
@@ -174,7 +180,7 @@
         src = ./.;
 
         nativeBuildInputs = [
-          pkgs.just
+          conjure.packages.${system}.default
           pkgs.gcc
           pkgs.vulkan-headers
           pkgs.libxcb
@@ -185,8 +191,7 @@
         buildPhase = ''
           runHook preBuild
 
-          sed -i 's|#!/usr/bin/env bash|#!${pkgs.bash}/bin/bash|' justfile
-          just release x11 false static
+          conjure as x11-release-static build
 
           runHook postBuild
         '';
@@ -194,10 +199,11 @@
         installPhase = ''
           runHook preInstall
 
-          mkdir -p $out/lib
+          mkdir -p $out/lib/pkgconfig
           mkdir -p $out/include/butter
 
-          cp lib/libbutter-x11-release.a $out/lib
+          sed -e "s|^prefix=.*|prefix=$out|" -e "s|^libdir=.*|libdir=$out/lib|" lib/x11-release-static/pkgconfig/butter-x11-static.pc > $out/lib/pkgconfig/butter-x11-static.pc
+          cp lib/x11-release-static/libbutter-x11-static.a $out/lib
           cp -r include/butter/* $out/include/butter
 
           runHook postInstall
@@ -211,7 +217,7 @@
         src = ./.;
 
         nativeBuildInputs = [
-          pkgs.just
+          conjure.packages.${system}.default
           pkgs.gcc
           pkgs.vulkan-headers
           pkgs.libxcb
@@ -222,8 +228,7 @@
         buildPhase = ''
           runHook preBuild
 
-          sed -i 's|#!/usr/bin/env bash|#!${pkgs.bash}/bin/bash|' justfile
-          just debug x11
+          conjure as x11-debug build
 
           runHook postBuild
         '';
@@ -231,10 +236,11 @@
         installPhase = ''
           runHook preInstall
 
-          mkdir -p $out/lib
+          mkdir -p $out/lib/pkgconfig
           mkdir -p $out/include/butter
 
-          cp lib/libbutter-x11-debug.a $out/lib
+          sed -e "s|^prefix=.*|prefix=$out|" -e "s|^libdir=.*|libdir=$out/lib|" lib/x11-debug/pkgconfig/butter-x11-debug.pc > $out/lib/pkgconfig/butter-x11-debug.pc
+          cp lib/x11-debug/libbutter-x11-debug.a $out/lib
           cp -r include/butter/* $out/include/butter
 
           runHook postInstall
@@ -246,12 +252,12 @@
 
         packages = with pkgs; [
           clang-tools
-          just
           nixd
           bear
           vulkan-tools
           shaderc
           tokei
+          conjure.packages.${system}.default
         ];
 
         nativeBuildInputs = with pkgs; [

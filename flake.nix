@@ -91,7 +91,7 @@
           mkdir -p $out/include/butter
           sed -e "s|^prefix=.*|prefix=$out|" -e "s|^libdir=.*|libdir=$out/lib|" lib/wayland-release-static/pkgconfig/butter-wayland-static.pc > $out/lib/pkgconfig/butter-wayland-static.pc
 
-          cp lib/wayland-release-static/libbutter-wayland-static.a $out/lib
+          cp lib/wayland-release-static/libbutter-wayland.a $out/lib
           cp -r include/butter/* $out/include/butter
 
           runHook postInstall
@@ -203,7 +203,7 @@
           mkdir -p $out/include/butter
 
           sed -e "s|^prefix=.*|prefix=$out|" -e "s|^libdir=.*|libdir=$out/lib|" lib/x11-release-static/pkgconfig/butter-x11-static.pc > $out/lib/pkgconfig/butter-x11-static.pc
-          cp lib/x11-release-static/libbutter-x11-static.a $out/lib
+          cp lib/x11-release-static/libbutter-x11.a $out/lib
           cp -r include/butter/* $out/include/butter
 
           runHook postInstall

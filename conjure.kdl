@@ -40,9 +40,8 @@ project {
     }
 
     wayland-release-static {
-      c_flags -DBUTTER_WAYLAND -O2
-
-      artifact "butter-wayland-static"
+      extends wayland-release
+      link static
     }
 
     x11-debug {
@@ -75,10 +74,8 @@ project {
     }
 
     x11-release-static {
+      extends x11-release
       link static
-      c_flags replace -DBUTTER_X11 -O2
-
-      artifact "butter-x11-static"
     }
   }
 

@@ -5,14 +5,14 @@
         "conjure": "conjure",
         "flake-utils": "flake-utils",
         "htils": "htils",
-        "nixpkgs": "nixpkgs_3"
+        "nixpkgs": "nixpkgs_4"
       },
       "locked": {
-        "lastModified": 1789430520,
-        "narHash": "sha256-z/7eunI/NR0uguKwaiMxtNShDIXlFYP5HqwKhmkPU+M=",
+        "lastModified": 1789462305,
+        "narHash": "sha256-4yCP9pGj811s8so3HEMyZPjRqWCErpc5c+sO/T4atDU=",
         "ref": "refs/heads/main",
-        "rev": "85646de2de139452ac83b7dfcdfbdca26454dc4d",
-        "revCount": 38,
+        "rev": "ee4e9aa2b719035594d6fbe89b2f89f234aee88d",
+        "revCount": 40,
         "type": "git",
         "url": "ssh://git@codeberg.org/h4rl/bread"
       },
@@ -41,7 +41,25 @@
     },
     "conjure_2": {
       "inputs": {
-        "nixpkgs": "nixpkgs_4"
+        "nixpkgs": "nixpkgs_2"
+      },
+      "locked": {
+        "lastModified": 1789377942,
+        "narHash": "sha256-jggH9J/N0dHkWpqiz8cwxGaJoiYXryv4qQ3VJv+fVsY=",
+        "ref": "refs/heads/main",
+        "rev": "1eb2fbb14f086ec7f988d9c16ad7af1b370d154a",
+        "revCount": 68,
+        "type": "git",
+        "url": "https://codeberg.org/h4rl/conjure.git"
+      },
+      "original": {
+        "type": "git",
+        "url": "https://codeberg.org/h4rl/conjure.git"
+      }
+    },
+    "conjure_3": {
+      "inputs": {
+        "nixpkgs": "nixpkgs_5"
       },
       "locked": {
         "lastModified": 1789377942,
@@ -55,6 +73,24 @@
       "original": {
         "type": "git",
         "url": "ssh://git@codeberg.org/h4rl/conjure"
+      }
+    },
+    "conjure_4": {
+      "inputs": {
+        "nixpkgs": "nixpkgs_6"
+      },
+      "locked": {
+        "lastModified": 1789377942,
+        "narHash": "sha256-jggH9J/N0dHkWpqiz8cwxGaJoiYXryv4qQ3VJv+fVsY=",
+        "ref": "refs/heads/main",
+        "rev": "1eb2fbb14f086ec7f988d9c16ad7af1b370d154a",
+        "revCount": 68,
+        "type": "git",
+        "url": "https://codeberg.org/h4rl/conjure.git"
+      },
+      "original": {
+        "type": "git",
+        "url": "https://codeberg.org/h4rl/conjure.git"
       }
     },
     "flake-utils": {
@@ -131,15 +167,16 @@
     },
     "htils": {
       "inputs": {
+        "conjure": "conjure_2",
         "flake-utils": "flake-utils_2",
-        "nixpkgs": "nixpkgs_2"
+        "nixpkgs": "nixpkgs_3"
       },
       "locked": {
-        "lastModified": 1788579879,
-        "narHash": "sha256-q8zbrEavzsC6/b/zF9qGOv1g8rWVYe4cy/0AgUtBDUA=",
+        "lastModified": 1789462275,
+        "narHash": "sha256-7iVmM96PiqeYJkFRRFN7XrUoSqIA/N1/nQ8mQNIsd3s=",
         "owner": "h4rldev",
         "repo": "htils",
-        "rev": "977eb4bdc9e50f8b710367dbbe63219a17968f58",
+        "rev": "628a684734ac35e2b3626c09a88a2dd28bc3825b",
         "type": "github"
       },
       "original": {
@@ -150,15 +187,16 @@
     },
     "htils_2": {
       "inputs": {
+        "conjure": "conjure_4",
         "flake-utils": "flake-utils_4",
-        "nixpkgs": "nixpkgs_5"
+        "nixpkgs": "nixpkgs_7"
       },
       "locked": {
-        "lastModified": 1788579879,
-        "narHash": "sha256-q8zbrEavzsC6/b/zF9qGOv1g8rWVYe4cy/0AgUtBDUA=",
+        "lastModified": 1789462275,
+        "narHash": "sha256-7iVmM96PiqeYJkFRRFN7XrUoSqIA/N1/nQ8mQNIsd3s=",
         "owner": "h4rldev",
         "repo": "htils",
-        "rev": "977eb4bdc9e50f8b710367dbbe63219a17968f58",
+        "rev": "628a684734ac35e2b3626c09a88a2dd28bc3825b",
         "type": "github"
       },
       "original": {
@@ -185,6 +223,22 @@
     },
     "nixpkgs_2": {
       "locked": {
+        "lastModified": 1786514691,
+        "narHash": "sha256-9dkt1i5JNbEfPb+EjLcSDNs8zqEHQ/1JlSaKgj0SBAg=",
+        "owner": "nixos",
+        "repo": "nixpkgs",
+        "rev": "867dcbc30bafe3c862ef88620f2e7a109d7d3be5",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nixos",
+        "ref": "nixos-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "nixpkgs_3": {
+      "locked": {
         "lastModified": 1778443072,
         "narHash": "sha256-zi7/fsqM/kFdNuED//4WOCUtezGtKKqRNORjMvfwjnA=",
         "owner": "nixos",
@@ -199,13 +253,13 @@
         "type": "github"
       }
     },
-    "nixpkgs_3": {
+    "nixpkgs_4": {
       "locked": {
-        "lastModified": 1788404924,
-        "narHash": "sha256-lhEhY8X5EgkQ/eg6IFz4cc8jRuSYSvnxx1al7d1dvZ0=",
+        "lastModified": 1789286504,
+        "narHash": "sha256-eiEK7cKZORNEvX0GeF3RtNEF/JXhgf2RqSp3230q13E=",
         "owner": "nixos",
         "repo": "nixpkgs",
-        "rev": "0968519e14f7aa7d3e9b389682bd74d2b51c8ce8",
+        "rev": "ef34387ddd751e1ab8857adf4676492d32eb24ec",
         "type": "github"
       },
       "original": {
@@ -215,7 +269,7 @@
         "type": "github"
       }
     },
-    "nixpkgs_4": {
+    "nixpkgs_5": {
       "locked": {
         "lastModified": 1786514691,
         "narHash": "sha256-9dkt1i5JNbEfPb+EjLcSDNs8zqEHQ/1JlSaKgj0SBAg=",
@@ -231,7 +285,23 @@
         "type": "github"
       }
     },
-    "nixpkgs_5": {
+    "nixpkgs_6": {
+      "locked": {
+        "lastModified": 1786514691,
+        "narHash": "sha256-9dkt1i5JNbEfPb+EjLcSDNs8zqEHQ/1JlSaKgj0SBAg=",
+        "owner": "nixos",
+        "repo": "nixpkgs",
+        "rev": "867dcbc30bafe3c862ef88620f2e7a109d7d3be5",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nixos",
+        "ref": "nixos-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "nixpkgs_7": {
       "locked": {
         "lastModified": 1778443072,
         "narHash": "sha256-zi7/fsqM/kFdNuED//4WOCUtezGtKKqRNORjMvfwjnA=",
@@ -247,7 +317,7 @@
         "type": "github"
       }
     },
-    "nixpkgs_6": {
+    "nixpkgs_8": {
       "locked": {
         "lastModified": 1789286504,
         "narHash": "sha256-eiEK7cKZORNEvX0GeF3RtNEF/JXhgf2RqSp3230q13E=",
@@ -266,10 +336,10 @@
     "root": {
       "inputs": {
         "bread": "bread",
-        "conjure": "conjure_2",
+        "conjure": "conjure_3",
         "flake-utils": "flake-utils_3",
         "htils": "htils_2",
-        "nixpkgs": "nixpkgs_6"
+        "nixpkgs": "nixpkgs_8"
       }
     },
     "systems": {

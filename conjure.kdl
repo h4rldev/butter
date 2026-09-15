@@ -8,7 +8,8 @@ project {
     src "src/butter"
     standard gnu11
     include "include"
-    ld_flags -lhtils -lvulkan -ldl
+    linker "mold"
+    ld_flags -lhtils-threadsafe -lvulkan -ldl
   }
 
   profiles {

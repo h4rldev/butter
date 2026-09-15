@@ -98,6 +98,7 @@ typedef struct app_state {
   butter_buffer_t vertex_buffer;
   butter_buffer_t index_buffer;
   u32 index_count;
+  bread_cursor_type_t cursor;
   f64 last_stats_print_s;
   b32 needs_redraw;
 } app_state_t;
@@ -137,6 +138,13 @@ void bread_event_callback(bread_event_t *event, void *userdata) {
                       (i32)butter_get_aa_mode(data->butter),
                       butter_get_aa_samples(data->butter));
       data->needs_redraw = true;
+      break;
+    }
+
+    if (unicode == 'c' || unicode == 'C') {
+      data->cursor = (data->cursor + 1) % BREAD_CURSOR_MAX;
+      bread_set_cursor(data->window, data->cursor);
+      butter_log_info("cursor -> %d", (i32)data->cursor);
       break;
     }
 

@@ -19,15 +19,15 @@ project {
       tests {
         multi {
           src "src/test/multi.c"
-          ld_flags -lwayland-client -lwayland-cursor -lxkbcommon -lbread-wayland-release -lm
+          ld_flags -lwayland-client -lwayland-cursor -lxkbcommon -lbread-wayland -lm
         }
         multi-texture {
           src "src/test/multi-texture.c"
-          ld_flags -lwayland-client -lwayland-cursor -lxkbcommon -lbread-wayland-release -lm
+          ld_flags -lwayland-client -lwayland-cursor -lxkbcommon -lbread-wayland-debug -lm
         }
         single {
           src "src/test/single.c"
-          ld_flags -lwayland-client -lwayland-cursor -lxkbcommon -lbread-wayland-release -lm
+          ld_flags -lwayland-client -lwayland-cursor -lxkbcommon -lbread-wayland -lm
         }
       }
     }
@@ -53,15 +53,15 @@ project {
       tests {
         multi {
           src "src/test/multi.c"
-          ld_flags -lxkbcommon -lxkbcommon-x11 -lxcb -lxcb-cursor -lxcb-icccm -lxcb-randr -lbread-x11-release
+          ld_flags -lxkbcommon -lxkbcommon-x11 -lxcb -lxcb-cursor -lxcb-icccm -lxcb-randr -lbread-x11
         }
         multi-texture {
           src "src/test/multi-texture.c"
-          ld_flags -lxkbcommon -lxkbcommon-x11 -lxcb -lxcb-cursor -lxcb-icccm -lxcb-randr -lbread-x11-release
+          ld_flags -lxkbcommon -lxkbcommon-x11 -lxcb -lxcb-cursor -lxcb-icccm -lxcb-randr -lbread-x11
         }
         single {
           src "src/test/single.c"
-          ld_flags -lxkbcommon -lxkbcommon-x11 -lxcb -lxcb-cursor -lxcb-icccm -lxcb-randr -lbread-x11-release
+          ld_flags -lxkbcommon -lxkbcommon-x11 -lxcb -lxcb-cursor -lxcb-icccm -lxcb-randr -lbread-x11
         }
       }
     }

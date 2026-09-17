@@ -82,8 +82,7 @@ butter_shader_t *butter_shader_get(butter_t *butter, const cstr *name) {
   }
 
   for (u32 i = 0; i < butter->shader_registry->count; i++)
-    if (memcmp(butter->shader_registry->shaders[i].name, name,
-               strlen(name) + 1) == 0)
+    if (strcmp(butter->shader_registry->shaders[i].name, name) == 0)
       return &butter->shader_registry->shaders[i];
 
   return null;

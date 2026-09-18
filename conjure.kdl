@@ -38,6 +38,21 @@ project {
       c_flags -DBUTTER_WAYLAND -O2
 
       artifact "butter-wayland"
+
+      tests {
+        multi {
+          src "src/test/multi.c"
+          ld_flags -lwayland-client -lwayland-cursor -lxkbcommon -lbread-wayland -lm
+        }
+        multi-texture {
+          src "src/test/multi-texture.c"
+          ld_flags -lwayland-client -lwayland-cursor -lxkbcommon -lbread-wayland-debug -lm
+        }
+        single {
+          src "src/test/single.c"
+          ld_flags -lwayland-client -lwayland-cursor -lxkbcommon -lbread-wayland -lm
+        }
+      }
     }
 
     wayland-release-static {

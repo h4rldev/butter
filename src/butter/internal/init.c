@@ -12,6 +12,7 @@
 #include <butter/texture.h>
 
 #include <butter/render/aa.h>
+#include <butter/render/thread.h>
 
 #include <butter/internal/cache.h>
 #include <butter/internal/check.h>
@@ -20,6 +21,7 @@
 #include <butter/internal/init.h>
 #include <butter/internal/stats.h>
 #include <butter/internal/swapchain.h>
+#include <butter/internal/texture.h>
 #include <butter/internal/types.h>
 
 #ifdef BUTTER_X11
@@ -35,10 +37,6 @@
 #include <vulkan/vulkan_core.h>
 
 #include <butter/log.h>
-
-#ifndef BUTTER_MAX_TEXTURES
-#define BUTTER_MAX_TEXTURES (1024)
-#endif
 
 #ifndef BUTTER_DYNAMIC_VBO_MIN
 #define BUTTER_DYNAMIC_VBO_MIN (KiB(256))
@@ -285,28 +283,24 @@ static b32 butter_init_sync_primitives(butter_context_t *context) {
  * @return true on success, false on error.
  */
 static b32 butter_init_textures(butter_context_t *context, arena_t *arena) {
+  if (mtx_init(&context->texture_descriptor_mutex, mtx_plain) != thrd_success) {
+    butter_log_fatal("Failed to initialize texture descriptor mutex");
+    return false;
+  }
+
   if (!context->shader_registry) {
     context->shader_registry =
         arena_alloc_zeroed(arena, struct butter_shader_registry, 1);
     context->shader_registry->capacity = 0;
   }
 
-  context->texture_registry.capacity = BUTTER_MAX_TEXTURES;
+  context->texture_registry.capacity = BUTTER_TEXTURE_REGISTRY_INITIAL;
   context->texture_registry.entries =
       arena_alloc_zeroed(context->arena, struct butter_texture_registry_entry,
-                         BUTTER_MAX_TEXTURES);
+                         BUTTER_TEXTURE_REGISTRY_INITIAL);
+
   context->texture_registry.count = 0;
   context->texture_registry.next_id = 1;
-
-  if ((context->available_vulkan_features & BUTTER_FEATURE_PUSH_DESCRIPTORS) ==
-      0) {
-    vk_descriptor_pool_size_t pool_size = {0};
-    pool_size.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    pool_size.descriptorCount = BUTTER_MAX_TEXTURES;
-
-    context->texture_descriptor_pool = butter_create_descriptor_pool(
-        context, BUTTER_MAX_TEXTURES, &pool_size, 1);
-  }
 
   vk_descriptor_set_layout_binding_t binding = {0};
   binding.binding = 0;
@@ -345,22 +339,6 @@ static b32 butter_init_textures(butter_context_t *context, arena_t *arena) {
   if (default_texture->image == VK_NULL_HANDLE) {
     butter_log_fatal("Failed to create default fallback texture");
     return false;
-  }
-
-  if ((context->available_vulkan_features & BUTTER_FEATURE_PUSH_DESCRIPTORS) ==
-      0) {
-    butter_descriptor_set_t default_desc = butter_allocate_descriptor_set(
-        context, context->texture_descriptor_pool,
-        context->texture_descriptor_set_layout);
-    if (default_desc.set == VK_NULL_HANDLE) {
-      butter_log_fatal("Failed to allocate default descriptor set");
-      return false;
-    }
-
-    butter_update_descriptor_image(context, &default_desc, 0,
-                                   default_texture->view,
-                                   default_texture->sampler);
-    default_texture->descriptor_set = default_desc;
   }
 
   context->texture_registry.entries[0].id = 0;
@@ -431,13 +409,16 @@ static void butter_destroy_textures(butter_context_t *context) {
                            context->texture_registry.entries[0].texture);
   }
 
-  if (context->texture_descriptor_pool)
-    vkDestroyDescriptorPool(context->device, context->texture_descriptor_pool,
-                            null);
+  for (u32 i = 0; i < context->texture_descriptor_pool_count; i++)
+    if (context->texture_descriptor_pools[i])
+      vkDestroyDescriptorPool(context->device,
+                              context->texture_descriptor_pools[i], null);
 
   if (context->texture_descriptor_set_layout)
     vkDestroyDescriptorSetLayout(context->device,
                                  context->texture_descriptor_set_layout, null);
+
+  mtx_destroy(&context->texture_descriptor_mutex);
 }
 
 //
@@ -686,6 +667,9 @@ void butter_destroy(butter_context_t *context) {
     butter_log_debug("Butter context already destroyed");
     return;
   }
+
+  butter_stop_texture_uploads(context);
+  butter_stop_render_thread(context);
 
   vk_result_t res;
 

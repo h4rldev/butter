@@ -6,6 +6,7 @@
 
 #include <butter/graphics.h>
 #include <butter/internal/memory.h>
+#include <butter/internal/texture.h>
 #include <butter/internal/types.h>
 #include <butter/log.h>
 #include <butter/texture.h>
@@ -343,28 +344,16 @@ static int butter_upload_thread(void *userdata) {
       continue;
     }
 
-    if ((butter->available_vulkan_features & BUTTER_FEATURE_PUSH_DESCRIPTORS) ==
-        0) {
-      butter_descriptor_set_t descriptor_set = butter_allocate_descriptor_set(
-          butter, butter->texture_descriptor_pool,
-          butter->texture_descriptor_set_layout);
-      if (descriptor_set.set == VK_NULL_HANDLE) {
-        mtx_lock(&butter->upload_mutex);
-        butter_log_error("Could not allocate descriptor set");
-        butter_destroy_buffer(butter, &upload->staging_buffer);
-        butter_destroy_texture(butter, upload->texture);
+    if (!butter_texture_create_descriptor_set(butter, upload->texture)) {
+      mtx_lock(&butter->upload_mutex);
+      butter_log_error("Could not create texture descriptor set");
+      butter_destroy_buffer(butter, &upload->staging_buffer);
+      butter_destroy_texture(butter, upload->texture);
 
-        upload->failed = true;
-        atomic_store(&upload->texture->upload_failed, true);
-        mtx_unlock(&butter->upload_mutex);
-        continue;
-      }
-
-      butter_update_descriptor_image(butter, &descriptor_set, 0,
-                                     upload->texture->view,
-                                     upload->texture->sampler);
-
-      upload->texture->descriptor_set = descriptor_set;
+      upload->failed = true;
+      atomic_store(&upload->texture->upload_failed, true);
+      mtx_unlock(&butter->upload_mutex);
+      continue;
     }
 
     if ((res = vkResetFences(butter->device, 1, &fence)) != VK_SUCCESS) {
@@ -689,22 +678,11 @@ butter_texture_t *butter_create_texture(butter_t *butter, u32 width, u32 height,
   if (!butter_texture_create_view(butter, texture))
     goto fail;
 
-  if ((butter->available_vulkan_features & BUTTER_FEATURE_PUSH_DESCRIPTORS) ==
-      0) {
-
-    butter_descriptor_set_t descriptor_set =
-        butter_allocate_descriptor_set(butter, butter->texture_descriptor_pool,
-                                       butter->texture_descriptor_set_layout);
-
-    if (descriptor_set.set == VK_NULL_HANDLE) {
-      butter_log_error("Could not allocate descriptor set");
-      goto fail;
-    }
-
-    butter_update_descriptor_image(butter, &descriptor_set, 0, texture->view,
-                                   texture->sampler);
-    texture->descriptor_set = descriptor_set;
+  if (!butter_texture_create_descriptor_set(butter, texture)) {
+    butter_log_error("Could not create texture descriptor set");
+    goto fail;
   }
+
   return texture;
 
 fail:
@@ -719,6 +697,16 @@ fail:
 void butter_destroy_texture(butter_t *butter, butter_texture_t *texture) {
   if (!texture || !butter)
     return;
+
+  if (texture->descriptor_set.set != VK_NULL_HANDLE &&
+      texture->descriptor_pool != VK_NULL_HANDLE) {
+    mtx_lock(&butter->texture_descriptor_mutex);
+    vkFreeDescriptorSets(butter->device, texture->descriptor_pool, 1,
+                         &texture->descriptor_set.set);
+    mtx_unlock(&butter->texture_descriptor_mutex);
+    texture->descriptor_set.set = VK_NULL_HANDLE;
+    texture->descriptor_pool = VK_NULL_HANDLE;
+  }
 
   butter_log_debug("Deleting View if available");
   if (texture->view)
@@ -949,8 +937,21 @@ b32 butter_texture_is_ready(const butter_texture_t *texture) {
 
 i32 butter_texture_register(butter_t *butter, butter_texture_t *texture) {
   if (butter->texture_registry.count >= butter->texture_registry.capacity) {
-    butter_log_error("Texture registry is full");
-    return -1;
+    u32 new_cap = butter->texture_registry.capacity
+                      ? butter->texture_registry.capacity * 2
+                      : BUTTER_TEXTURE_REGISTRY_INITIAL;
+    struct butter_texture_registry_entry *entries = arena_alloc_zeroed(
+        butter->arena, struct butter_texture_registry_entry, new_cap);
+    if (!entries) {
+      butter_log_error("Could not grow texture registry");
+      return -1;
+    }
+
+    for (u32 i = 0; i < butter->texture_registry.count; i++)
+      entries[i] = butter->texture_registry.entries[i];
+
+    butter->texture_registry.entries = entries;
+    butter->texture_registry.capacity = new_cap;
   }
 
   u32 id = butter->texture_registry.next_id++;

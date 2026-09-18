@@ -1,5 +1,6 @@
 /***********************************/
 
+#include <htils/arena.h>
 #include <htils/basictypes.h>
 
 #include <butter/log.h>
@@ -376,6 +377,7 @@ static b32 butter_validate_pipeline_desc(const butter_pipeline_desc_t *desc) {
 static b32 butter_pipeline_build(butter_t *butter, struct butter_pipeline *p) {
   const butter_pipeline_desc_t *desc = &p->retained->desc;
   b32 uses_descriptors = p->retained->desc.descriptor_set_layout_count > 0;
+  temp_arena_t scratch = temp_arena_new(butter->arena);
 
   for (u32 i = 0; i < desc->shaders_count; i++) {
     if (!desc->shaders[i].entry_point) {
@@ -563,12 +565,14 @@ static b32 butter_pipeline_build(butter_t *butter, struct butter_pipeline *p) {
   p->pipeline = pipeline;
   p->layout = layout;
   p->uses_descriptors = uses_descriptors;
+  temp_arena_free(scratch);
   return true;
 
 fail:
   for (u32 i = 0; i < desc->shaders_count; i++)
     if (modules[i])
       vkDestroyShaderModule(butter->device, modules[i], null);
+  temp_arena_free(scratch);
   return false;
 }
 

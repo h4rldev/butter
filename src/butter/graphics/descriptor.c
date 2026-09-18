@@ -5,6 +5,8 @@
 #include <butter/log.h>
 #include <butter/types.h>
 
+#include <butter/graphics/descriptor.h>
+
 /***********************************/
 
 vk_descriptor_pool_t

@@ -88,6 +88,7 @@ struct butter_texture {
   u32 height;
   vk_format_t format;
   struct butter_descriptor_set descriptor_set;
+  vk_descriptor_pool_t descriptor_pool;
   vk_sampler_t sampler;
 
   atomic_b32 is_upload;
@@ -287,7 +288,9 @@ typedef struct butter_context {
   vk_device_memory_t *aa_color_memories;
 
   struct butter_texture_registry texture_registry;
-  vk_descriptor_pool_t texture_descriptor_pool;
+  vk_descriptor_pool_t *texture_descriptor_pools;
+  u32 texture_descriptor_pool_count;
+  mtx_t texture_descriptor_mutex;
   vk_descriptor_set_layout_t texture_descriptor_set_layout;
 } butter_context_t;
 

@@ -551,6 +551,11 @@ butter_context_t *butter_create(arena_t *arena, vk_instance_t instance,
   context->enable_depth = enable_depth;
   context->aa_samples = 1;
 
+  context->max_render_width = config->max_render_width;
+  context->max_render_height = config->max_render_height;
+  context->aa_vram_budget =
+      config->aa_vram_budget ? config->aa_vram_budget : BUTTER_AA_VRAM_BUDGET;
+
   if (mtx_init(&context->aa_mutex, mtx_plain) != thrd_success)
     goto fail;
 

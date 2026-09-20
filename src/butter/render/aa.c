@@ -4,6 +4,7 @@
 
 #include <htils/basictypes.h>
 
+#include <butter/internal/aa.h>
 #include <butter/internal/types.h>
 
 #include <butter/log.h>
@@ -12,38 +13,6 @@
 #include <butter/render/aa.h>
 
 /***********************************/
-
-/**
- * @brief Resolve the effective MSAA sample count.
- * @details Clamps the requested sample count (or the device maximum when the
- * request is 0) down to the highest device-supported count. Returns 1 when
- * anti-aliasing is off.
- *
- * @param butter The butter context.
- *
- * @pre @c butter must be a valid butter context.
- *
- * @return The resolved sample count.
- */
-static u32 butter_aa_resolve_samples(const butter_t *butter) {
-  if (butter->aa_mode == BUTTER_AA_NONE)
-    return 1;
-
-  u32 wanted = butter->aa_requested_samples;
-  if (wanted == 0)
-    wanted = butter->aa_max_samples;
-
-  u32 best = 1;
-  for (u32 s = 1; s <= wanted; s <<= 1)
-    if (butter->aa_color_sample_counts & s)
-      best = s;
-
-  return best;
-}
-
-//
-//
-//
 
 butter_aa_caps_t butter_get_aa_caps(butter_t *butter) {
   butter_aa_caps_t caps = {0};

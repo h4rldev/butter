@@ -139,6 +139,9 @@ struct butter_init_config {
   b32 enable_depth;
   u32 aa_mode;
   u32 aa_samples;
+  u32 max_render_width;
+  u32 max_render_height;
+  u64 aa_vram_budget;
 };
 
 typedef void (*butter_draw_callback_t)(vk_command_buffer_t cmd,
@@ -161,6 +164,12 @@ typedef struct butter_stats_state {
   atomic_u32 fps_frame_count;
   atomic_u64 fps_window_start_ns;
 } butter_stats_state_t;
+
+enum butter_aa_mode {
+  BUTTER_AA_NONE,
+  BUTTER_AA_MSAA,
+  BUTTER_AA_MODE_MAX,
+};
 
 /**
  * @brief The butter render context.
@@ -211,6 +220,8 @@ typedef struct butter_context {
   b32 enable_depth;
 
   vk_render_pass_t render_pass;
+  u32 render_pass_samples;
+
   vk_fence_t *in_flight_fences;
   vk_semaphore_t *image_available;
   vk_semaphore_t *rendering_finished;
@@ -282,6 +293,10 @@ typedef struct butter_context {
   u32 aa_max_samples;
   atomic_b32 aa_dirty;
   mtx_t aa_mutex;
+
+  u32 max_render_width;
+  u32 max_render_height;
+  u64 aa_vram_budget;
 
   vk_image_t *aa_color_images;
   vk_image_view_t *aa_color_image_views;

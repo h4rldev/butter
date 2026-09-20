@@ -14,6 +14,10 @@
 #define BUTTER_LATENCY_CAP 4
 #endif
 
+#ifndef BUTTER_AA_VRAM_BUDGET
+#define BUTTER_AA_VRAM_BUDGET (256ull << 20)
+#endif
+
 //
 //
 //

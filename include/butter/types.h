@@ -163,11 +163,7 @@ typedef struct {
   b32 memory_budget_valid;
 } butter_stats_t;
 
-typedef enum {
-  BUTTER_AA_NONE,
-  BUTTER_AA_MSAA,
-  BUTTER_AA_MODE_MAX
-} butter_aa_mode_t;
+typedef enum butter_aa_mode butter_aa_mode_t;
 
 typedef struct {
   u32 color_sample_counts;

@@ -22,6 +22,11 @@
  * - dynamic_ibo_size: 0
  * - pipeline_cache_path: null
  * - enable_depth: false
+ * - aa_mode: none
+ * - aa_samples: 0
+ * - max_render_width: 0
+ * - max_render_height: 0
+ * - aa_vram_budget: 0
  *
  * @return The default init config.
  */

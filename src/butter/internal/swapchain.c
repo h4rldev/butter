@@ -1,11 +1,19 @@
-#include <htils/basictypes.h>
+/***********************************/
+
+#include <threads.h>
+
 #include <vulkan/vulkan.h>
 
+#include <htils/basictypes.h>
+
+#include <butter/internal/aa.h>
 #include <butter/internal/memory.h>
 #include <butter/internal/swapchain.h>
 #include <butter/internal/types.h>
+
 #include <butter/log.h>
-#include <vulkan/vulkan_core.h>
+
+/***********************************/
 
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
@@ -337,6 +345,7 @@ static b32 butter_create_render_pass(butter_context_t *context) {
     return false;
   }
 
+  context->render_pass_samples = context->aa_samples;
   return true;
 }
 
@@ -490,6 +499,10 @@ b32 butter_recreate_render_resources(butter_context_t *context) {
     context->render_pass = VK_NULL_HANDLE;
   }
 
+  mtx_lock(&context->aa_mutex);
+  context->aa_samples = butter_aa_resolve_budgeted(context);
+  mtx_unlock(&context->aa_mutex);
+
   if (!butter_create_render_pass(context))
     return false;
   if (!butter_create_aa_resources(context))
@@ -572,6 +585,14 @@ b32 butter_create_swapchain(butter_context_t *context, u32 latency_cap,
   context->extent.width = MIN(context->extent.width, caps.maxImageExtent.width);
   context->extent.height =
       MIN(context->extent.height, caps.maxImageExtent.height);
+
+  if (context->max_render_width > 0)
+    context->extent.width =
+        MIN(context->extent.width, context->max_render_width);
+  if (context->max_render_height > 0)
+    context->extent.height =
+        MIN(context->extent.height, context->max_render_height);
+
   context->extent.width = MAX(context->extent.width, caps.minImageExtent.width);
   context->extent.height =
       MAX(context->extent.height, caps.minImageExtent.height);
@@ -590,6 +611,16 @@ b32 butter_create_swapchain(butter_context_t *context, u32 latency_cap,
                         ? MIN(image_count, latency_cap)
                         : image_count;
   context->frames_in_flight = MAX(frame_depth, 1u);
+
+  mtx_lock(&context->aa_mutex);
+  context->aa_samples = butter_aa_resolve_budgeted(context);
+  mtx_unlock(&context->aa_mutex);
+
+  if (context->render_pass &&
+      context->render_pass_samples != context->aa_samples) {
+    vkDestroyRenderPass(context->device, context->render_pass, null);
+    context->render_pass = VK_NULL_HANDLE;
+  }
 
   vk_swapchain_create_info_khr_t swapchain_create_info = {0};
   swapchain_create_info.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;

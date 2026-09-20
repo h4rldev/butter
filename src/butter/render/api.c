@@ -30,6 +30,9 @@ butter_init_config_t butter_init_config_default(void) {
       .enable_depth = false,
       .aa_mode = BUTTER_AA_NONE,
       .aa_samples = 0,
+      .max_render_width = 0,
+      .max_render_height = 0,
+      .aa_vram_budget = 0,
   };
 }
 

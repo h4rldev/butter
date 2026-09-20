@@ -499,10 +499,7 @@ b32 butter_recreate_render_resources(butter_context_t *context) {
     context->render_pass = VK_NULL_HANDLE;
   }
 
-  mtx_lock(&context->aa_mutex);
   context->aa_samples = butter_aa_resolve_budgeted(context);
-  mtx_unlock(&context->aa_mutex);
-
   if (!butter_create_render_pass(context))
     return false;
   if (!butter_create_aa_resources(context))

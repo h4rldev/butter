@@ -599,7 +599,7 @@ b32 butter_create_swapchain(butter_context_t *context, u32 latency_cap,
   if (context->extent.height == 0)
     context->extent.height = 600;
 
-  u32 image_count = caps.minImageCount + 1;
+  u32 image_count = caps.minImageCount;
   if (caps.maxImageCount > 0 && image_count > caps.maxImageCount)
     image_count = caps.maxImageCount;
 

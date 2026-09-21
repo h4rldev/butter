@@ -59,6 +59,7 @@ static int render_thread_loop(void *arg) {
         butter->pending_width = butter->extent.width;
         butter->pending_height = butter->extent.height;
         butter->resize_pending = true;
+        butter->swapchain_dirty = true;
       }
     }
 

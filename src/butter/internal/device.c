@@ -116,6 +116,16 @@ b32 butter_select_physical_device(arena_t *arena, butter_context_t *context) {
   }
 #endif
 
+  vk_physical_device_present_wait_features_khr_t present_wait_features = {0};
+  present_wait_features.sType =
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_WAIT_FEATURES_KHR;
+  vk_physical_device_present_id_features_khr_t present_id_features = {0};
+  present_id_features.sType =
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_ID_FEATURES_KHR;
+  present_id_features.pNext = features2.pNext;
+  present_wait_features.pNext = &present_id_features;
+  features2.pNext = &present_wait_features;
+
   vkGetPhysicalDeviceFeatures2(context->physical_device, &features2);
   context->available_vulkan_features = 0;
 
@@ -144,12 +154,22 @@ b32 butter_select_physical_device(arena_t *arena, butter_context_t *context) {
         context->arena, vk_extension_properties_t, ext_count);
     if (vkEnumerateDeviceExtensionProperties(context->physical_device, null,
                                              &ext_count, exts) == VK_SUCCESS) {
-      for (u32 i = 0; i < ext_count; i++)
+      b32 has_present_wait = false;
+      b32 has_present_id = false;
+      for (u32 i = 0; i < ext_count; i++) {
         if (strcmp(exts[i].extensionName,
-                   VK_EXT_MEMORY_BUDGET_EXTENSION_NAME) == 0) {
+                   VK_EXT_MEMORY_BUDGET_EXTENSION_NAME) == 0)
           context->available_vulkan_features |= BUTTER_FEATURE_MEMORY_BUDGET;
-          break;
-        }
+        else if (strcmp(exts[i].extensionName,
+                        VK_KHR_PRESENT_WAIT_EXTENSION_NAME) == 0)
+          has_present_wait = true;
+        else if (strcmp(exts[i].extensionName,
+                        VK_KHR_PRESENT_ID_EXTENSION_NAME) == 0)
+          has_present_id = true;
+      }
+      if (has_present_wait && has_present_id &&
+          present_wait_features.presentWait && present_id_features.presentId)
+        context->available_vulkan_features |= BUTTER_FEATURE_PRESENT_WAIT;
     }
   }
 
@@ -253,21 +273,35 @@ b32 butter_create_device(butter_context_t *context) {
   }
 #endif
 
+  vk_physical_device_present_wait_features_khr_t enable_present_wait = {0};
+  vk_physical_device_present_id_features_khr_t enable_present_id = {0};
+  if (context->available_vulkan_features & BUTTER_FEATURE_PRESENT_WAIT) {
+    enable_present_wait.sType =
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_WAIT_FEATURES_KHR;
+    enable_present_wait.presentWait = VK_TRUE;
+    enable_present_id.sType =
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_ID_FEATURES_KHR;
+    enable_present_id.presentId = VK_TRUE;
+    enable_present_id.pNext = enable_features2.pNext;
+    enable_present_wait.pNext = &enable_present_id;
+    enable_features2.pNext = &enable_present_wait;
+  }
+
   vk_device_queue_create_info_t device_queue_info = {0};
   device_queue_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
   device_queue_info.queueFamilyIndex = context->queue_family;
   device_queue_info.queueCount = 1;
   device_queue_info.pQueuePriorities = &prio;
 
-  const cstr *extensions[] = {
-      "VK_KHR_swapchain",
-      VK_EXT_MEMORY_BUDGET_EXTENSION_NAME,
-  };
-
-  u32 extension_count =
-      1 + ((context->available_vulkan_features & BUTTER_FEATURE_MEMORY_BUDGET)
-               ? 1
-               : 0);
+  const cstr *extensions[4];
+  u32 extension_count = 0;
+  extensions[extension_count++] = "VK_KHR_swapchain";
+  if (context->available_vulkan_features & BUTTER_FEATURE_MEMORY_BUDGET)
+    extensions[extension_count++] = VK_EXT_MEMORY_BUDGET_EXTENSION_NAME;
+  if (context->available_vulkan_features & BUTTER_FEATURE_PRESENT_WAIT) {
+    extensions[extension_count++] = VK_KHR_PRESENT_WAIT_EXTENSION_NAME;
+    extensions[extension_count++] = VK_KHR_PRESENT_ID_EXTENSION_NAME;
+  }
 
   vk_device_create_info_t device_create_info = {0};
   device_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
@@ -284,5 +318,12 @@ b32 butter_create_device(butter_context_t *context) {
   }
 
   vkGetDeviceQueue(context->device, context->queue_family, 0, &context->queue);
+  if (context->available_vulkan_features & BUTTER_FEATURE_PRESENT_WAIT) {
+    context->wait_for_present = (PFN_vkWaitForPresentKHR)vkGetDeviceProcAddr(
+        context->device, "vkWaitForPresentKHR");
+    if (!context->wait_for_present)
+      context->available_vulkan_features &= ~BUTTER_FEATURE_PRESENT_WAIT;
+  }
+
   return true;
 }

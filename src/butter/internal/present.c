@@ -24,9 +24,34 @@ static vk_result_t butter_present(butter_context_t *context, u32 image_index) {
   present_info.pSwapchains = &context->swapchain;
   present_info.pImageIndices = &image_index;
 
-  return vkQueuePresentKHR(context->queue, &present_info);
-}
+  b32 paced =
+      (context->available_vulkan_features & BUTTER_FEATURE_PRESENT_WAIT) &&
+      atomic_load(&context->vsync) && context->swapchain_fresh;
 
+  u64 present_id = 0;
+  vk_present_id_khr_t present_id_info = {0};
+  if (paced) {
+    present_id = ++context->present_id;
+    present_id_info.sType = VK_STRUCTURE_TYPE_PRESENT_ID_KHR;
+    present_id_info.swapchainCount = 1;
+    present_id_info.pPresentIds = &present_id;
+    present_info.pNext = &present_id_info;
+  }
+
+  vk_result_t res = vkQueuePresentKHR(context->queue, &present_info);
+
+  if (paced && (res == VK_SUCCESS || res == VK_SUBOPTIMAL_KHR)) {
+    vk_result_t wait_res = context->wait_for_present(
+        context->device, context->swapchain, present_id, 100000000);
+    if (wait_res == VK_TIMEOUT)
+      butter_log_warning("Wait for present timed out: %d", wait_res);
+    else if (wait_res != VK_SUCCESS)
+      butter_log_error("Could not wait for present: %d", wait_res);
+  }
+
+  context->swapchain_fresh = false;
+  return res;
+}
 //
 //
 //

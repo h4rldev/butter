@@ -137,6 +137,7 @@ void butter_set_vsync(butter_t *butter, b32 vsync) {
   butter->resize_pending = true;
   butter->pending_width = butter->extent.width;
   butter->pending_height = butter->extent.height;
+  butter->swapchain_dirty = true;
   mtx_unlock(&butter->render_mutex);
 
   if (atomic_load(&butter->render_running)) {

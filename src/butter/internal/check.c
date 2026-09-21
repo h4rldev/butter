@@ -20,24 +20,25 @@ b32 butter_is_vulkan_available(void) {
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wpedantic"
 
-  pfn_vkGetInstanceProcAddr vkGetInstanceProcAddr =
-      (pfn_vkGetInstanceProcAddr)dlsym(lib, "vkGetInstanceProcAddr");
+  pfn_vk_get_instance_proc_addr_t vkGetInstanceProcAddr =
+      (pfn_vk_get_instance_proc_addr_t)dlsym(lib, "vkGetInstanceProcAddr");
 
   if (!vkGetInstanceProcAddr) {
     butter_log_fatal("Could not load vkGetInstanceProcAddr");
     return false;
   }
 
-  pfn_vkEnumerateInstanceVersion vkEnumerateInstanceVersion =
-      (pfn_vkEnumerateInstanceVersion)dlsym(lib, "vkEnumerateInstanceVersion");
+  pfn_vk_enumerate_instance_version_t vkEnumerateInstanceVersion =
+      (pfn_vk_enumerate_instance_version_t)dlsym(lib,
+                                                 "vkEnumerateInstanceVersion");
 
   b32 result = false;
   if (vkEnumerateInstanceVersion) {
     u32 version = 0;
     result = (vkEnumerateInstanceVersion(&version) == VK_SUCCESS);
   } else {
-    pfn_vkCreateInstance vkCreateInstance =
-        (pfn_vkCreateInstance)dlsym(lib, "vkCreateInstance");
+    pfn_vk_create_ínstance_t vkCreateInstance =
+        (pfn_vk_create_ínstance_t)dlsym(lib, "vkCreateInstance");
     result = (vkCreateInstance != NULL);
   }
 

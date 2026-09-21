@@ -49,10 +49,16 @@ typedef VkDependencyInfo vk_dependency_info_t;
 typedef VkPhysicalDeviceVulkan14Features vk_physical_device_vulkan14_features_t;
 #endif
 
+typedef VkPhysicalDevicePresentWaitFeaturesKHR
+    vk_physical_device_present_wait_features_khr_t;
+typedef VkPhysicalDevicePresentIdFeaturesKHR
+    vk_physical_device_present_id_features_khr_t;
+
 /** PFN aliases */
-typedef PFN_vkGetInstanceProcAddr pfn_vkGetInstanceProcAddr;
-typedef PFN_vkEnumerateInstanceVersion pfn_vkEnumerateInstanceVersion;
-typedef PFN_vkCreateInstance pfn_vkCreateInstance;
+typedef PFN_vkGetInstanceProcAddr pfn_vk_get_instance_proc_addr_t;
+typedef PFN_vkEnumerateInstanceVersion pfn_vk_enumerate_instance_version_t;
+typedef PFN_vkCreateInstance pfn_vk_create_ínstance_t;
+typedef PFN_vkWaitForPresentKHR pfn_vk_wait_for_present_khr_t;
 
 typedef VkInstance vk_instance_t;
 typedef VkInstanceCreateInfo vk_instance_create_info_t;
@@ -171,6 +177,7 @@ typedef VkIndexType vk_index_type_t;
 
 typedef VkDynamicState vk_dynamic_state_t;
 typedef VkPresentModeKHR vk_present_mode_khr_t;
+typedef VkPresentIdKHR vk_present_id_khr_t;
 
 typedef VkGraphicsPipelineCreateInfo vk_graphics_pipeline_create_info_t;
 

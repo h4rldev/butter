@@ -24,7 +24,7 @@ project {
         }
         multi-texture {
           src "src/test/multi-texture.c"
-          ld_flags -lwayland-client -lwayland-cursor -lxkbcommon -lbread-wayland-debug -lm
+          ld_flags -lwayland-client -lwayland-cursor -lxkbcommon -lbread-wayland -lm
         }
         single {
           src "src/test/single.c"

@@ -31,6 +31,7 @@
 #define BUTTER_FEATURE_SYNCHRONIZATION_2 (1 << 1)
 #define BUTTER_FEATURE_PUSH_DESCRIPTORS (1 << 2)
 #define BUTTER_FEATURE_MEMORY_BUDGET (1 << 3)
+#define BUTTER_FEATURE_PRESENT_WAIT (1 << 4)
 
 struct butter_pipeline_retained;
 
@@ -229,6 +230,10 @@ typedef struct butter_context {
   vk_semaphore_t timeline_semaphore;
   u64 timeline_value;
 
+  u64 present_id;
+  pfn_vk_wait_for_present_khr_t wait_for_present;
+  b32 swapchain_fresh;
+
   vk_command_pool_t cmd_pool;
   vk_command_buffer_t *cmds;
   vk_clear_value_t clear_color;
@@ -258,6 +263,7 @@ typedef struct butter_context {
   u32 pending_width;
   u32 pending_height;
   b32 resize_pending;
+  b32 swapchain_dirty;
 
   thrd_t upload_thread;
   mtx_t upload_mutex;

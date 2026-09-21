@@ -40,20 +40,30 @@ butter_frame_t *butter_begin_frame(arena_t *arena, butter_t *butter) {
   butter->dynamic_ibo_offset = 0;
 
   u32 image_index = 0;
-  vk_result_t res;
-  if ((res = butter_acquire_next_image(butter, &image_index)) != VK_SUCCESS) {
-    if (res == VK_TIMEOUT) {
+  vk_result_t res = butter_acquire_next_image(butter, &image_index);
+  if (res == VK_SUBOPTIMAL_KHR) {
+    /* Suboptimal still hands us a valid image; render it and recreate the
+       swapchain afterwards. Bailing out abandons the signaled image_available
+       semaphore and breaks every following acquire (VUID-01286). */
+    butter->resize_pending = true;
+    butter->pending_width = butter->extent.width;
+    butter->pending_height = butter->extent.height;
+    butter->swapchain_dirty = true;
+  } else if (res != VK_SUCCESS) {
+    if (res == VK_TIMEOUT)
       butter_log_debug("Acquire timed out - skipping frame");
-      return null;
-    } else if (res == VK_ERROR_OUT_OF_DATE_KHR || res == VK_SUBOPTIMAL_KHR)
+    else if (res == VK_ERROR_OUT_OF_DATE_KHR)
       butter_log_debug("Swapchain out of date - resizing");
     else
       butter_log_debug("Acquire error %d - triggering resize", res);
 
-    butter->resize_pending = true;
-    butter->pending_width = butter->extent.width;
-    butter->pending_height = butter->extent.height;
-    return NULL;
+    if (res != VK_TIMEOUT) {
+      butter->resize_pending = true;
+      butter->pending_width = butter->extent.width;
+      butter->pending_height = butter->extent.height;
+      butter->swapchain_dirty = true;
+    }
+    return null;
   }
 
   u32 in_flight_frame_slot = butter->in_flight_frame_slot;
@@ -126,8 +136,12 @@ void butter_resize(butter_t *butter, u32 width, u32 height) {
   if (!butter)
     return;
 
-  if (width == butter->extent.width && height == butter->extent.height)
+  b32 recreate = butter->swapchain_dirty || width != butter->extent.width ||
+                 height != butter->extent.height;
+  if (!recreate)
     return;
+
+  butter->swapchain_dirty = false;
 
   butter_log_debug("Resizing butter surface window");
   vk_result_t res;

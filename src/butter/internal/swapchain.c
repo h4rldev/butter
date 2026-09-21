@@ -694,6 +694,7 @@ b32 butter_create_swapchain(butter_context_t *context, u32 latency_cap,
   if (!butter_create_framebuffers(context))
     return false;
 
+  context->swapchain_fresh = true;
   return true;
 }
 

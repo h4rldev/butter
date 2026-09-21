@@ -123,6 +123,12 @@ vk_result_t butter_end_frame(arena_t *arena, butter_t *butter,
 }
 
 void butter_resize(butter_t *butter, u32 width, u32 height) {
+  if (!butter)
+    return;
+
+  if (width == butter->extent.width && height == butter->extent.height)
+    return;
+
   butter_log_debug("Resizing butter surface window");
   vk_result_t res;
 

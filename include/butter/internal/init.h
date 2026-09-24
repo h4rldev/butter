@@ -85,4 +85,22 @@ butter_context_t *butter_create(arena_t *arena, vk_instance_t instance,
  */
 void butter_destroy(butter_context_t *context);
 
+//
+//
+//
+
+/**
+ * @brief Ensure the per-frame dynamic vertex and index buffers exist.
+ * @details Grows the per-frame dynamic VBO/IBO arrays so there is one buffer
+ * per in-flight frame. Only rebuilds when @c frames_in_flight exceeds the
+ * current capacity; existing buffers are preserved.
+ *
+ * @param context The butter context.
+ *
+ * @pre @c context must be a valid butter context.
+ *
+ * @return true on success, false on error.
+ */
+b32 butter_ensure_dynamic_buffers(butter_context_t *context);
+
 #endif // !BUTTER_INTERNAL_INIT_H

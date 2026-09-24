@@ -75,7 +75,11 @@ typedef enum {
   BUTTER_BLEND_ALPHA,
   BUTTER_BLEND_ADDITIVE,
   BUTTER_BLEND_PREMULTIPLIED,
-  BUTTER_BLEND_MAX
+  BUTTER_BLEND_MULTIPLY,
+  BUTTER_BLEND_SCREEN,
+  BUTTER_BLEND_MIN,
+  BUTTER_BLEND_MAX,
+  BUTTER_BLEND_COUNT,
 } butter_blend_mode_t;
 
 typedef enum {
@@ -97,6 +101,9 @@ typedef struct {
 
   const vk_descriptor_set_layout_t *descriptor_set_layouts;
   u32 descriptor_set_layout_count;
+
+  const vk_push_constant_range_t *push_constant_ranges;
+  u32 push_constant_range_count;
 
   butter_primitive_topology_t topology;
   butter_polygon_mode_t polygon_mode;
@@ -135,6 +142,12 @@ typedef struct butter_init_config butter_init_config_t;
 typedef struct butter_texture butter_texture_t;
 typedef struct butter_texture_registry butter_texture_registry_t;
 typedef struct butter_texture_registry_entry butter_texture_registry_entry_t;
+typedef struct butter_target butter_target_t;
+
+typedef struct {
+  u32 width;  // 0 = the current swapchain width
+  u32 height; // 0 = the current swapchain height
+} butter_target_desc_t;
 
 typedef struct {
   butter_pipeline_t *pipeline;
@@ -148,6 +161,13 @@ typedef struct {
   const butter_descriptor_set_t *descriptor_sets;
   u32 descriptor_set_count;
   u32 texture_id;
+
+  butter_texture_t *const *input_textures;
+  u32 input_texture_count;
+
+  const void *push_constants;
+  u32 push_constant_size;
+
   vk_rect2d_t scissor;
   b32 scissor_enabled;
 } butter_draw_cmd_t;
@@ -169,5 +189,30 @@ typedef struct {
   u32 color_sample_counts;
   u32 max_samples;
 } butter_aa_caps_t;
+
+/**
+ * @brief A single fullscreen effect draw.
+ * @details Runs @c pipeline as a fullscreen triangle (three vertices derived
+ * from @c gl_VertexIndex, no vertex buffer) into the current pass, sampling
+ * @c inputs[i] at descriptor binding @c i of set 0. The effect pipeline's set 0
+ * must declare exactly @c input_count combined image samplers in the fragment
+ * stage, and its vertex shader must emit the triangle from @c gl_VertexIndex.
+ * @c push_constants are forwarded verbatim; their layout is the caller's to
+ * define in the pipeline description. Disable depth testing on effect
+ * pipelines unless the effect needs it.
+ *
+ * @param pipeline The effect pipeline.
+ * @param inputs The textures sampled at binding 0..input_count-1.
+ * @param input_count The number of input textures.
+ * @param push_constants The push constant data, or null for none.
+ * @param push_constant_size The size of the push constant data in bytes.
+ */
+typedef struct {
+  butter_pipeline_t *pipeline;
+  butter_texture_t *const *inputs;
+  u32 input_count;
+  const void *push_constants;
+  u32 push_constant_size;
+} butter_effect_t;
 
 #endif // !BUTTER_TYPES_H

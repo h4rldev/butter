@@ -6,6 +6,7 @@
 #include <butter/internal/present.h>
 #include <butter/internal/stats.h>
 #include <butter/internal/swapchain.h>
+#include <butter/internal/texture.h>
 #include <butter/internal/types.h>
 
 #include <butter/log.h>
@@ -16,8 +17,33 @@
 #include <butter/render/aa.h>
 #include <butter/render/frame.h>
 #include <butter/render/pacing.h>
+#include <butter/render/target.h>
 
 /***********************************/
+
+static void butter_frame_to_present(butter_context_t *butter,
+                                    vk_command_buffer_t cmd, u32 image_index) {
+  vk_image_memory_barrier_t barrier = {0};
+  barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+  barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+  barrier.dstAccessMask = 0;
+  barrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+  barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+  barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  barrier.image = butter->images[image_index];
+  barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+  barrier.subresourceRange.levelCount = 1;
+  barrier.subresourceRange.layerCount = 1;
+
+  vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                       VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, null, 0,
+                       null, 1, &barrier);
+}
+
+//
+//
+//
 
 butter_frame_t *butter_begin_frame(arena_t *arena, butter_t *butter) {
   if (atomic_load(&butter->aa_dirty)) {
@@ -67,6 +93,11 @@ butter_frame_t *butter_begin_frame(arena_t *arena, butter_t *butter) {
   }
 
   u32 in_flight_frame_slot = butter->in_flight_frame_slot;
+
+  if (butter->effect_pools && in_flight_frame_slot < butter->effect_pool_cap)
+    vkResetDescriptorPool(butter->device,
+                          butter->effect_pools[in_flight_frame_slot], 0);
+
   vk_command_buffer_t cmd = butter->cmds[in_flight_frame_slot];
   vk_command_buffer_begin_info_t begin_info = {0};
   begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -82,22 +113,10 @@ butter_frame_t *butter_begin_frame(arena_t *arena, butter_t *butter) {
 
   butter_stats_begin_frame(butter, cmd, in_flight_frame_slot);
 
-  vk_render_pass_begin_info_t rp_begin = {0};
-  rp_begin.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-  rp_begin.renderPass = butter->render_pass;
-  rp_begin.framebuffer = butter->framebuffers[image_index];
-  rp_begin.renderArea.extent = extent;
-  rp_begin.renderArea.offset = (vk_offset2d_t){0};
-
-  vk_clear_value_t clears[2] = {
-      butter->clear_color,
-      (vk_clear_value_t){.depthStencil = {1.0f, 0}},
-  };
-
-  rp_begin.clearValueCount = butter->enable_depth ? 2 : 1;
-  rp_begin.pClearValues = clears;
-
-  vkCmdBeginRenderPass(cmd, &rp_begin, VK_SUBPASS_CONTENTS_INLINE);
+  butter->pass_framebuffer = butter->framebuffers[image_index];
+  butter->pass_image_index = image_index;
+  butter->pass_depth = 0;
+  butter_pass_begin(butter, null, false, false);
 
   butter_frame_t *frame = arena_alloc_zeroed(arena, butter_frame_t, 1);
   frame->cmd = cmd;
@@ -114,8 +133,8 @@ vk_result_t butter_end_frame(arena_t *arena, butter_t *butter,
                              butter_frame_t *frame) {
   vk_result_t res;
 
-  vkCmdEndRenderPass(frame->cmd);
-
+  butter_pass_end(butter);
+  butter_frame_to_present(butter, frame->cmd, frame->image_index);
   butter_stats_end_timestamp(butter, frame->cmd, butter->in_flight_frame_slot);
 
   if ((res = vkEndCommandBuffer(frame->cmd)) != VK_SUCCESS)
@@ -130,6 +149,120 @@ vk_result_t butter_end_frame(arena_t *arena, butter_t *butter,
   butter_stats_tick_fps(butter, get_time_ns());
   butter_limit_frame_rate(butter, frame->frame_start_ns, get_time_ns());
   return res;
+}
+
+butter_texture_t *butter_snapshot(butter_t *butter, butter_target_t *dst, u32 x,
+                                  u32 y, u32 width, u32 height) {
+  if (!butter || !dst) {
+    butter_log_error("Invalid arguments for snapshot");
+    return null;
+  }
+
+  if (butter->pass_depth == 0) {
+    butter_log_error("No active pass to snapshot");
+    return null;
+  }
+
+  if (dst == butter->pass_target) {
+    butter_log_error("Cannot snapshot into the active pass target");
+    return null;
+  }
+
+  if (width == 0)
+    width = butter->extent.width - x;
+  if (height == 0)
+    height = butter->extent.height - y;
+
+  if (width == 0 || height == 0 || x + width > butter->extent.width ||
+      y + height > butter->extent.height) {
+    butter_log_error("Snapshot region is out of bounds");
+    return null;
+  }
+
+  if (width > dst->texture.width || height > dst->texture.height) {
+    butter_log_error("Snapshot region is larger than the destination target");
+    return null;
+  }
+
+  vk_command_buffer_t cmd = butter->cmds[butter->in_flight_frame_slot];
+  vk_image_t source = butter->images[butter->pass_image_index];
+  vk_image_t dest = dst->texture.image;
+
+  butter_pass_end(butter);
+
+  vk_image_memory_barrier_t to[2] = {0};
+  to[0].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+  to[0].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+  to[0].dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+  to[0].oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+  to[0].newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+  to[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  to[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  to[0].image = source;
+  to[0].subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+  to[0].subresourceRange.levelCount = 1;
+  to[0].subresourceRange.layerCount = 1;
+
+  to[1].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+  to[1].srcAccessMask = 0;
+  to[1].dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+  to[1].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+  to[1].newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+  to[1].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  to[1].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  to[1].image = dest;
+  to[1].subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+  to[1].subresourceRange.levelCount = 1;
+  to[1].subresourceRange.layerCount = 1;
+
+  vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                       VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, null, 0, null, 2,
+                       to);
+
+  vk_image_copy_t region = {0};
+  region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+  region.srcSubresource.layerCount = 1;
+  region.srcOffset = (vk_offset3d_t){(i32)x, (i32)y, 0};
+  region.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+  region.dstSubresource.layerCount = 1;
+  region.dstOffset = (vk_offset3d_t){0, 0, 0};
+  region.extent = (vk_extent3d_t){width, height, 1};
+
+  vkCmdCopyImage(cmd, source, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dest,
+                 VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+
+  vk_image_memory_barrier_t back[2] = {0};
+  back[0].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+  back[0].srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+  back[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+  back[0].oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+  back[0].newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+  back[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  back[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  back[0].image = source;
+  back[0].subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+  back[0].subresourceRange.levelCount = 1;
+  back[0].subresourceRange.layerCount = 1;
+
+  back[1].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+  back[1].srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+  back[1].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+  back[1].oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+  back[1].newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+  back[1].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  back[1].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  back[1].image = dest;
+  back[1].subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+  back[1].subresourceRange.levelCount = 1;
+  back[1].subresourceRange.layerCount = 1;
+
+  vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                       VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+                           VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                       0, 0, null, 0, null, 2, back);
+
+  butter_pass_begin(butter, butter->pass_target, true, true);
+  return &dst->texture;
 }
 
 void butter_resize(butter_t *butter, u32 width, u32 height) {
@@ -167,26 +300,9 @@ void butter_resize(butter_t *butter, u32 width, u32 height) {
     }
   }
 
-  vkFreeCommandBuffers(butter->device, butter->cmd_pool,
-                       butter->frames_in_flight, butter->cmds);
-
   if ((res = butter_update_surface(butter, BUTTER_LATENCY_CAP, width,
                                    height)) != VK_SUCCESS)
     butter_log_error("Could not update surface: %d", res);
-
-  vk_command_buffer_allocate_info_t alloc_info = {0};
-  alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-  alloc_info.commandPool = butter->cmd_pool;
-  alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-  alloc_info.commandBufferCount = butter->frames_in_flight;
-
-  if (!butter->cmds)
-    butter->cmds = arena_alloc_zeroed(butter->arena, vk_command_buffer_t,
-                                      butter->frames_in_flight);
-
-  if ((res = vkAllocateCommandBuffers(butter->device, &alloc_info,
-                                      butter->cmds)) != VK_SUCCESS)
-    butter_log_error("Could not allocate command buffers");
 }
 
 b32 butter_frame_completed(const butter_t *butter) {

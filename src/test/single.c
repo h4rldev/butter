@@ -3,15 +3,19 @@
 #include <htils/arena.h>
 #include <htils/string.h>
 
-#include <bread/backend.h>
 #include <bread/event.h>
 #include <bread/window.h>
 
-#include <xcb/xcb_icccm.h>
-
 #include <butter/render.h>
 
-#define enable_validation false
+#define enable_validation true
+
+typedef struct {
+  bread_window_t *window;
+  u32 pending_w;
+  u32 pending_h;
+  b32 resize_dirty;
+} app_state_t;
 
 static void print_rss(const char *tag) {
   FILE *f = fopen("/proc/self/smaps_rollup", "r");
@@ -30,22 +34,15 @@ static void print_rss(const char *tag) {
 }
 
 void bread_event_callback(bread_event_t *event, void *userdata) {
-  butter_t *butter = (butter_t *)userdata;
+  app_state_t *state = (app_state_t *)userdata;
 
-  // fprintf(stderr, "Got a event");
   switch (event->type) {
-  case BREAD_EVENT_WINDOW_CLOSE:
-    // fprintf(stderr, ", its a close event\n");
-    break;
   case BREAD_EVENT_WINDOW_RESIZE:
-    if (butter) {
-      butter->pending_width = event->data.resize.width;
-      butter->pending_height = event->data.resize.height;
-      butter->resize_pending = true;
-    }
+    state->pending_w = event->data.resize.width;
+    state->pending_h = event->data.resize.height;
+    state->resize_dirty = true;
     break;
   default:
-    // fprintf(stderr, " of type %d\n", event->type);
     break;
   }
 }
@@ -86,27 +83,31 @@ int main(void) {
 
   print_rss("butter");
 
-  bread_window_set_event_callback(&window, bread_event_callback, butter);
+  app_state_t state = {.window = &window};
+  bread_window_set_event_callback(&window, bread_event_callback, &state);
   butter_set_clear_color(butter, 0.2f, 0.3f, 0.8f, 1.0f);
+
   while (bread_window_should_close(&window) == false) {
     bread_window_poll(&window);
 
-    if (butter->resize_pending)
-      butter_resize(butter, butter->pending_width, butter->pending_height);
+    if (state.resize_dirty) {
+      butter_resize(butter, state.pending_w, state.pending_h);
+      state.resize_dirty = false;
+    }
 
     butter_frame_t *frame = butter_begin_frame(arena, butter);
     if (!frame) {
-      if (butter->resize_pending) {
-        butter_resize(butter, butter->pending_width, butter->pending_height);
-        butter->resize_pending = false;
-      }
+      state.pending_w = window.width;
+      state.pending_h = window.height;
+      state.resize_dirty = true;
       continue;
     }
 
     vk_result_t res = butter_end_frame(arena, butter, frame);
     if (res == VK_ERROR_OUT_OF_DATE_KHR || res == VK_SUBOPTIMAL_KHR) {
-      butter_resize(butter, butter->pending_width, butter->pending_height);
-      butter->resize_pending = false;
+      state.pending_w = window.width;
+      state.pending_h = window.height;
+      state.resize_dirty = true;
     }
   }
 

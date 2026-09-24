@@ -39,6 +39,8 @@ struct butter_pipeline {
   vk_pipeline_layout_t layout;
   vk_pipeline_t pipeline;
   b32 uses_descriptors;
+  vk_descriptor_set_layout_t set_layout0;
+  vk_shader_stage_flags_mask_t push_constant_stage_flags;
   struct butter_pipeline_retained *retained;
 };
 
@@ -172,6 +174,23 @@ enum butter_aa_mode {
   BUTTER_AA_MODE_MAX,
 };
 
+struct butter_target {
+  u32 width;
+  u32 height;
+  u32 samples;
+  b32 follow_width;
+  b32 follow_height;
+  vk_framebuffer_t framebuffer;
+  struct butter_texture texture;
+  vk_image_t msaa_image;
+  vk_image_view_t msaa_view;
+  vk_device_memory_t msaa_memory;
+  vk_image_t depth_image;
+  vk_image_view_t depth_view;
+  vk_device_memory_t depth_memory;
+  struct butter_target *next;
+};
+
 /**
  * @brief The butter render context.
  * @details Owns the Vulkan instance, device, surface, swapchain, and every
@@ -221,6 +240,8 @@ typedef struct butter_context {
   b32 enable_depth;
 
   vk_render_pass_t render_pass;
+  vk_render_pass_t render_pass_load;
+  vk_render_pass_t render_pass_target;
   u32 render_pass_samples;
 
   vk_fence_t *in_flight_fences;
@@ -238,6 +259,17 @@ typedef struct butter_context {
   vk_command_buffer_t *cmds;
   vk_clear_value_t clear_color;
 
+  vk_descriptor_pool_t *effect_pools;
+  u32 effect_pool_cap;
+
+  vk_framebuffer_t pass_framebuffer;
+  u32 pass_image_index;
+  u32 pass_depth;
+
+  struct butter_target *pass_target;
+  vk_extent2d_t pass_extent;
+  struct butter_target *targets;
+
   vk_present_mode_khr_t *available_modes;
   u32 available_mode_count;
 
@@ -254,6 +286,8 @@ typedef struct butter_context {
 
   arena_t *arena;
   arena_t *render_arena;
+  arena_t *swapchain_arena;
+  arena_t *attachment_arena;
 
   butter_draw_callback_t draw_callback;
   void *draw_userdata;
@@ -286,6 +320,8 @@ typedef struct butter_context {
   u32 dynamic_ibo_size;
   u64 dynamic_ibo_offset;
 
+  u32 dynamic_cap;
+
   struct butter_shader_registry *shader_registry;
 
   struct butter_pipeline **pipelines;
@@ -313,6 +349,7 @@ typedef struct butter_context {
   u32 texture_descriptor_pool_count;
   mtx_t texture_descriptor_mutex;
   vk_descriptor_set_layout_t texture_descriptor_set_layout;
+  vk_sampler_t default_sampler;
 } butter_context_t;
 
 #endif // !BUTTER_INTERNAL_TYPES_H

@@ -1,3 +1,6 @@
+#include "butter/internal/vk_types.h"
+#include "butter/render/target.h"
+#include "butter/shader.h"
 #include <limits.h>
 #include <math.h>
 #include <stdio.h>
@@ -10,13 +13,11 @@
 #include <htils/file.h>
 #include <htils/string.h>
 
-#include <bread/backend.h>
 #include <bread/event.h>
 #include <bread/input.h>
 #include <bread/window.h>
 
 #include <vulkan/vulkan_core.h>
-#include <xcb/xcb_icccm.h>
 
 #include <butter/graphics.h>
 #include <butter/log.h>
@@ -95,13 +96,37 @@ typedef struct app_state {
   f32 b;
 
   butter_pipeline_t *pipeline;
+  butter_pipeline_t *effect_pipeline;
+
+  butter_pipeline_t *blur_pipeline;
+  butter_pipeline_t *blur_composite_pipeline;
+
   butter_buffer_t vertex_buffer;
   butter_buffer_t index_buffer;
   u32 index_count;
+
+  butter_target_t *target;
+  butter_target_t *blur_a;
+  butter_target_t *blur_b;
+  butter_target_t *snapshot_target;
+
+  arena_t *frame_arena;
   bread_cursor_type_t cursor;
   f64 last_stats_print_s;
   b32 needs_redraw;
+  u32 pending_w;
+  u32 pending_h;
+  b32 resize_dirty;
 } app_state_t;
+
+typedef struct {
+  f32 region[4];
+  f32 extent[2];
+  f32 dir[2];
+  f32 blur;
+  f32 radius;
+  f32 pad[2];
+} blur_push_t;
 
 f32 random_f32(void) { return (f32)rand() / (f32)RAND_MAX; }
 
@@ -156,9 +181,11 @@ void bread_event_callback(bread_event_t *event, void *userdata) {
   case BREAD_EVENT_WINDOW_RESIZE:
     butter_log_debug("width: %d, height: %d", event->data.resize.width,
                      event->data.resize.height);
-    butter_set_pending_resize(data->butter, event->data.resize.width,
-                              event->data.resize.height);
+    data->pending_w = event->data.resize.width;
+    data->pending_h = event->data.resize.height;
+    data->resize_dirty = true;
     data->needs_redraw = true;
+    break;
     break;
   default:
     fprintf(stderr, "Unhandled event: %d\n", event->type);
@@ -261,6 +288,185 @@ static app_state_t *create_quad(butter_t *butter) {
   return resources;
 }
 
+static butter_pipeline_t *create_effect_pipeline(butter_t *butter) {
+  arena_t *arena = butter->arena;
+  string *vert = read_file(arena, HTILS_STR("./src/test/effect.vert.spv"));
+  string *frag = read_file(arena, HTILS_STR("./src/test/effect.frag.spv"));
+
+  if (!vert || !frag) {
+    butter_log_fatal("Failed to load effect shaders");
+    return null;
+  }
+
+  butter_shader_t shaders[2] = {
+      {
+          .stage = BUTTER_STAGE_VERTEX,
+          .code = vert->base,
+          .code_size = vert->len,
+          .entry_point = "main",
+      },
+      {
+          .stage = BUTTER_STAGE_FRAGMENT,
+          .code = frag->base,
+          .code_size = frag->len,
+          .entry_point = "main",
+      },
+  };
+
+  butter_pipeline_desc_t desc = butter_pipeline_desc_default();
+  butter_pipeline_desc_add_shaders(&desc, shaders, 2);
+  desc.cull_mode = BUTTER_CULL_NONE;
+  desc.topology = BUTTER_TOPOLOGY_TRIANGLE_LIST;
+  desc.depth_test = false;
+  desc.depth_write = false;
+  desc.descriptor_set_layouts = &butter->texture_descriptor_set_layout;
+  desc.descriptor_set_layout_count = 1;
+
+  butter_pipeline_t *pipeline = butter_create_pipeline(butter, &desc);
+  if (!butter_pipeline_valid(pipeline)) {
+    butter_log_fatal("Failed to create effect pipeline");
+    return null;
+  }
+
+  return pipeline;
+}
+
+static butter_pipeline_t *create_blur_pipeline(butter_t *butter,
+                                               butter_shader_t *shaders,
+                                               butter_blend_mode_t blend) {
+  vk_push_constant_range_t range = {0};
+  range.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+  range.offset = 0;
+  range.size = sizeof(blur_push_t);
+
+  butter_pipeline_desc_t desc = butter_pipeline_desc_default();
+  butter_pipeline_desc_add_shaders(&desc, shaders, 2);
+  butter_pipeline_desc_add_descriptor_set_layouts(
+      &desc, &butter->texture_descriptor_set_layout, 1);
+  butter_pipeline_desc_add_push_constants(&desc, &range, 1);
+
+  desc.cull_mode = BUTTER_CULL_NONE;
+  desc.topology = BUTTER_TOPOLOGY_TRIANGLE_LIST;
+  desc.blend_mode = blend;
+  desc.depth_test = false;
+  desc.depth_write = false;
+
+  butter_pipeline_t *pipeline = butter_create_pipeline(butter, &desc);
+  if (!butter_pipeline_valid(pipeline)) {
+    butter_log_fatal("Failed to create blur pipeline");
+    return null;
+  }
+
+  return pipeline;
+}
+
+static b32 create_blur_pipelines(butter_t *butter, app_state_t *state) {
+  arena_t *arena = butter->arena;
+
+  butter_shader_t *blur_vert_shader =
+      butter_shader_load_file(butter, arena, "blur_vert_spv",
+                              "./src/test/blur.vert.spv", BUTTER_STAGE_VERTEX);
+  butter_shader_t *blur_frag_shader = butter_shader_load_file(
+      butter, arena, "blur_frag_spv", "./src/test/blur.frag.spv",
+      BUTTER_STAGE_FRAGMENT);
+
+  butter_shader_t *composite_frag_shader = butter_shader_load_file(
+      butter, arena, "composite_frag_spv", "./src/test/composite.frag.spv",
+      BUTTER_STAGE_FRAGMENT);
+
+  if (!blur_frag_shader || !blur_vert_shader || !composite_frag_shader) {
+    butter_log_fatal("Failed to load blur shaders.");
+    return false;
+  }
+
+  butter_shader_t blur_shaders[2] = {
+      *butter_shader_get(butter, "blur_vert_spv"),
+      *butter_shader_get(butter, "blur_frag_spv"),
+  };
+
+  butter_shader_t composite_shaders[2] = {
+      *butter_shader_get(butter, "blur_vert_spv"),
+      *butter_shader_get(butter, "composite_frag_spv"),
+  };
+
+  state->blur_pipeline =
+      create_blur_pipeline(butter, blur_shaders, BUTTER_BLEND_NONE);
+  state->blur_composite_pipeline =
+      create_blur_pipeline(butter, composite_shaders, BUTTER_BLEND_ALPHA);
+
+  if (!state->blur_pipeline || !state->blur_composite_pipeline)
+    return false;
+
+  return true;
+}
+
+static void draw_blur(butter_t *butter, app_state_t *state, f32 x, f32 y, f32 w,
+                      f32 h, f32 radius, f32 blur) {
+  butter_texture_t *snapshot =
+      butter_snapshot(butter, state->snapshot_target, 0, 0, 0, 0);
+  if (!snapshot)
+    return;
+
+  butter_pass_end(butter);
+
+  blur_push_t push = {0};
+  push.extent[0] = (f32)butter->extent.width;
+  push.extent[1] = (f32)butter->extent.height;
+  push.blur = blur;
+
+  butter_texture_t *input = snapshot;
+
+  push.dir[0] = 1.0f;
+  push.dir[1] = 0.0f;
+
+  butter_pass_begin(butter, state->blur_a, false, false);
+  butter_effect_t horizontal = {
+      .pipeline = state->blur_pipeline,
+      .inputs = &input,
+      .input_count = 1,
+      .push_constants = &push,
+      .push_constant_size = sizeof(push),
+  };
+
+  butter_submit_effect(butter, &horizontal);
+  butter_pass_end(butter);
+
+  input = butter_target_texture(state->blur_a);
+  push.dir[0] = 0.0f;
+  push.dir[1] = 1.0f;
+
+  butter_pass_begin(butter, state->blur_b, false, false);
+  butter_effect_t vertical = {
+      .pipeline = state->blur_pipeline,
+      .inputs = &input,
+      .input_count = 1,
+      .push_constants = &push,
+      .push_constant_size = sizeof(push),
+  };
+  butter_submit_effect(butter, &vertical);
+  butter_pass_end(butter);
+
+  input = butter_target_texture(state->blur_b);
+  push.region[0] = x;
+  push.region[1] = y;
+  push.region[2] = w;
+  push.region[3] = h;
+  push.dir[0] = 0.0f;
+  push.dir[1] = 0.0f;
+  push.radius = radius;
+
+  butter_pass_begin(butter, null, true, true);
+  butter_effect_t composite = {
+      .pipeline = state->blur_composite_pipeline,
+      .inputs = &input,
+      .input_count = 1,
+      .push_constants = &push,
+      .push_constant_size = sizeof(push),
+  };
+
+  butter_submit_effect(butter, &composite);
+}
+
 void draw_texture(vk_command_buffer_t cmd, const butter_frame_t *frame,
                   void *userdata) {
   app_state_t *state = (app_state_t *)userdata;
@@ -290,7 +496,20 @@ void draw_texture(vk_command_buffer_t cmd, const butter_frame_t *frame,
   draw_cmd.index_type = VK_INDEX_TYPE_UINT32;
   draw_cmd.texture_id = 0;
 
+  butter_pass_end(state->butter);
+  butter_pass_begin(state->butter, state->target, false, false);
   butter_submit_draws(state->butter, &draw_cmd, 1);
+  butter_pass_end(state->butter);
+  butter_pass_begin(state->butter, null, true, true);
+
+  butter_texture_t *input = butter_target_texture(state->target);
+  butter_effect_t effect = {0};
+  effect.pipeline = state->effect_pipeline;
+  effect.inputs = &input;
+  effect.input_count = 1;
+  butter_submit_effect(state->butter, &effect);
+
+  draw_blur(state->butter, state, 120.0f, 120.0f, 420.0f, 300.0f, 24.0f, 16.0f);
 }
 
 int main(void) {
@@ -343,6 +562,33 @@ int main(void) {
   state->butter = butter;
   state->window = &window;
   state->needs_redraw = true;
+  state->frame_arena = frame_arena;
+
+  state->effect_pipeline = create_effect_pipeline(butter);
+  if (!state->effect_pipeline) {
+    butter_log_error("Could not create effect pipeline");
+    return 1;
+  }
+
+  butter_target_desc_t target_desc = {0};
+  state->target = butter_target_create(butter, arena, &target_desc);
+  if (!state->target) {
+    butter_log_error("Could not create target");
+    return 1;
+  }
+
+  state->blur_a = butter_target_create(butter, arena, &target_desc);
+  state->blur_b = butter_target_create(butter, arena, &target_desc);
+  state->snapshot_target = butter_target_create(butter, arena, &target_desc);
+  if (!state->blur_a || !state->blur_b || !state->snapshot_target) {
+    butter_log_error("Couldn't create blur targets");
+    return 1;
+  }
+
+  if (!create_blur_pipelines(butter, state)) {
+    butter_log_error("Couldn't create blur pipelines");
+    return 1;
+  }
 
   butter_set_draw_callback(butter, draw_texture, state);
 
@@ -353,6 +599,12 @@ int main(void) {
   butter_start_render_thread(butter, frame_arena);
   while (bread_window_should_close(&window) == false) {
     bread_window_poll(&window);
+
+    if (state->resize_dirty) {
+      butter_set_pending_resize(butter, state->pending_w, state->pending_h);
+      state->resize_dirty = false;
+      state->needs_redraw = true;
+    }
 
     if (state->needs_redraw) {
       state->needs_redraw = false;
@@ -372,6 +624,14 @@ int main(void) {
   butter_stop_render_thread(butter);
 
   vkDeviceWaitIdle(butter->device);
+  butter_target_destroy(butter, state->target);
+  butter_target_destroy(butter, state->blur_a);
+  butter_target_destroy(butter, state->blur_b);
+  butter_target_destroy(butter, state->snapshot_target);
+
+  butter_destroy_pipeline(butter, state->blur_pipeline);
+  butter_destroy_pipeline(butter, state->blur_composite_pipeline);
+  butter_destroy_pipeline(butter, state->effect_pipeline);
 
   butter_destroy_pipeline(butter, state->pipeline);
   butter_destroy_buffer(butter, &state->vertex_buffer);

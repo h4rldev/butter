@@ -1,130 +1,21 @@
 /***********************************/
 
+#include <string.h>
+#include <threads.h>
+
 #include <htils/arena.h>
 #include <htils/basictypes.h>
-#include <string.h>
 
-#include <butter/graphics.h>
 #include <butter/internal/memory.h>
 #include <butter/internal/texture.h>
 #include <butter/internal/types.h>
+
+#include <butter/graphics.h>
 #include <butter/log.h>
 #include <butter/texture.h>
 #include <butter/types.h>
-#include <threads.h>
 
 /***********************************/
-
-/**
- * @brief Create a new image for a texture.
- * @details Uses vkCreateImage to create a new image with the provided texture
- * structure, then allocates and binds the required memory.
- *
- * @param butter The butter context.
- * @param texture The texture to create the image for.
- *
- * @pre
- * - @c butter must be a valid butter context.
- * - @c texture must be a valid texture.
- *
- * @return True if the image was created successfully, false otherwise.
- */
-static b32 butter_texture_create_image(butter_t *butter,
-                                       butter_texture_t *texture) {
-  vk_image_create_info_t image_info = {0};
-  image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-  image_info.imageType = VK_IMAGE_TYPE_2D;
-  image_info.format = texture->format;
-  image_info.extent = (vk_extent3d_t){texture->width, texture->height, 1};
-  image_info.mipLevels = 1;
-  image_info.arrayLayers = 1;
-  image_info.samples = VK_SAMPLE_COUNT_1_BIT;
-  image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
-  image_info.usage =
-      VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-  image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-  image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-
-  vk_result_t res;
-  if ((res = vkCreateImage(butter->device, &image_info, null,
-                           &texture->image)) != VK_SUCCESS) {
-    butter_log_error("Could not create image: %d", res);
-    return false;
-  }
-
-  vk_memory_requirements_t mem_reqs;
-  vkGetImageMemoryRequirements(butter->device, texture->image, &mem_reqs);
-  i32 mem_type =
-      butter_find_memory_type(butter->physical_device, mem_reqs.memoryTypeBits,
-                              VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-  if (mem_type == -1) {
-    butter_log_fatal("No device-local memory type for texture");
-    return false;
-  }
-
-  vk_memory_allocate_info_t alloc_info = {0};
-  alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-  alloc_info.allocationSize = mem_reqs.size;
-  alloc_info.memoryTypeIndex = mem_type;
-
-  if ((res = vkAllocateMemory(butter->device, &alloc_info, null,
-                              &texture->memory)) != VK_SUCCESS) {
-    butter_log_error("Could not allocate memory for texture: %d", res);
-    return false;
-  }
-
-  if ((res = vkBindImageMemory(butter->device, texture->image, texture->memory,
-                               0)) != VK_SUCCESS) {
-    butter_log_error("Could not bind image memory: %d", res);
-    return false;
-  }
-
-  return true;
-}
-
-//
-//
-//
-
-/**
- * @brief Create a new image view for a texture.
- * @details Uses vkCreateImageView to create a new image view with the provided
- * texture structure.
- *
- * @param butter The butter context.
- * @param texture The texture to create the image view for.
- *
- * @pre
- * - @c butter must be a valid butter context.
- * - @c texture must be a valid texture.
- *
- * @return True if the image view was created successfully, false otherwise.
- */
-static b32 butter_texture_create_view(butter_t *butter,
-                                      butter_texture_t *texture) {
-  vk_image_view_create_info_t image_view_info = {0};
-  image_view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-  image_view_info.image = texture->image;
-  image_view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-  image_view_info.format = texture->format;
-  image_view_info.subresourceRange = (vk_image_subresource_range_t){0};
-  image_view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-  image_view_info.subresourceRange.levelCount = 1;
-  image_view_info.subresourceRange.layerCount = 1;
-
-  vk_result_t res;
-  if ((res = vkCreateImageView(butter->device, &image_view_info, null,
-                               &texture->view)) != VK_SUCCESS) {
-    butter_log_error("Could not create image view: %d", res);
-    return false;
-  }
-
-  return true;
-}
-
-//
-//
-//
 
 /**
  * @brief The Upload thread.
@@ -488,7 +379,9 @@ butter_texture_t *butter_create_texture(butter_t *butter, u32 width, u32 height,
 
   vk_result_t res;
 
-  if (!butter_texture_create_image(butter, texture))
+  if (!butter_texture_create_image(butter, texture,
+                                   VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+                                       VK_IMAGE_USAGE_SAMPLED_BIT))
     goto fail;
 
   butter_buffer_t staging_buffer = butter_create_buffer(
@@ -806,7 +699,9 @@ butter_texture_t *butter_submit_texture_upload(butter_t *butter, u32 width,
 
   memcpy(staging_buffer.mapped, data, data_size);
 
-  if (!butter_texture_create_image(butter, texture))
+  if (!butter_texture_create_image(butter, texture,
+                                   VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+                                       VK_IMAGE_USAGE_SAMPLED_BIT))
     goto fail;
 
   if (!butter_texture_create_view(butter, texture))

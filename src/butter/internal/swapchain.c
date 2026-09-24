@@ -7,9 +7,13 @@
 #include <htils/basictypes.h>
 
 #include <butter/internal/aa.h>
+#include <butter/internal/init.h>
 #include <butter/internal/memory.h>
 #include <butter/internal/swapchain.h>
+#include <butter/internal/target.h>
 #include <butter/internal/types.h>
+
+#include <butter/graphics/descriptor.h>
 
 #include <butter/log.h>
 
@@ -17,6 +21,9 @@
 
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
+
+#define BUTTER_EFFECT_POOL_MAX_SETS 64
+#define BUTTER_EFFECT_POOL_SAMPLERS 512
 
 /**
  * @brief Creates the depth resources for the context.
@@ -30,12 +37,12 @@
  * @return true on success, false on error.
  */
 static b32 butter_create_depth_resources(butter_context_t *context) {
-  context->depth_images =
-      arena_alloc_zeroed(context->arena, vk_image_t, context->image_count);
-  context->depth_image_views =
-      arena_alloc_zeroed(context->arena, vk_image_view_t, context->image_count);
+  context->depth_images = arena_alloc_zeroed(context->attachment_arena,
+                                             vk_image_t, context->image_count);
+  context->depth_image_views = arena_alloc_zeroed(
+      context->attachment_arena, vk_image_view_t, context->image_count);
   context->depth_memories = arena_alloc_zeroed(
-      context->arena, vk_device_memory_t, context->image_count);
+      context->attachment_arena, vk_device_memory_t, context->image_count);
 
   vk_image_create_info_t image_create_info = {0};
   image_create_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -131,12 +138,12 @@ static b32 butter_create_aa_resources(butter_context_t *context) {
   if (context->aa_samples <= 1)
     return true;
 
-  context->aa_color_images =
-      arena_alloc_zeroed(context->arena, vk_image_t, context->image_count);
-  context->aa_color_image_views =
-      arena_alloc_zeroed(context->arena, vk_image_view_t, context->image_count);
+  context->aa_color_images = arena_alloc_zeroed(
+      context->attachment_arena, vk_image_t, context->image_count);
+  context->aa_color_image_views = arena_alloc_zeroed(
+      context->attachment_arena, vk_image_view_t, context->image_count);
   context->aa_color_memories = arena_alloc_zeroed(
-      context->arena, vk_device_memory_t, context->image_count);
+      context->attachment_arena, vk_device_memory_t, context->image_count);
 
   vk_image_create_info_t image_create_info = {0};
   image_create_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -266,7 +273,8 @@ static void butter_destroy_aa_resources(butter_context_t *context) {
  *
  * @return true on success, false on error.
  */
-static b32 butter_create_render_pass(butter_context_t *context) {
+static b32 butter_create_render_pass(butter_context_t *context, b32 load,
+                                     b32 target, vk_render_pass_t *out) {
   b32 msaa = context->aa_samples > 1;
   vk_sample_count_flag_bits_t samples =
       (vk_sample_count_flag_bits_t)context->aa_samples;
@@ -277,12 +285,15 @@ static b32 butter_create_render_pass(butter_context_t *context) {
   vk_attachment_description_t color_att = {0};
   color_att.format = context->format;
   color_att.samples = msaa ? samples : VK_SAMPLE_COUNT_1_BIT;
-  color_att.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-  color_att.storeOp =
-      msaa ? VK_ATTACHMENT_STORE_OP_DONT_CARE : VK_ATTACHMENT_STORE_OP_STORE;
-  color_att.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-  color_att.finalLayout = msaa ? VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
-                               : VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+  color_att.loadOp =
+      load ? VK_ATTACHMENT_LOAD_OP_LOAD : VK_ATTACHMENT_LOAD_OP_CLEAR;
+  color_att.storeOp = (target && msaa) ? VK_ATTACHMENT_STORE_OP_DONT_CARE
+                                       : VK_ATTACHMENT_STORE_OP_STORE;
+  color_att.initialLayout = load ? VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+                                 : VK_IMAGE_LAYOUT_UNDEFINED;
+  color_att.finalLayout = (target && !msaa)
+                              ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+                              : VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
   atts[att_count++] = color_att;
 
   vk_attachment_reference_t color_ref = {0};
@@ -297,7 +308,8 @@ static b32 butter_create_render_pass(butter_context_t *context) {
     resolve_att.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
     resolve_att.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
     resolve_att.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    resolve_att.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    resolve_att.finalLayout = target ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+                                     : VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     atts[att_count] = resolve_att;
 
     resolve_ref.attachment = att_count;
@@ -310,11 +322,15 @@ static b32 butter_create_render_pass(butter_context_t *context) {
     vk_attachment_description_t depth_att = {0};
     depth_att.format = VK_FORMAT_D32_SFLOAT;
     depth_att.samples = msaa ? samples : VK_SAMPLE_COUNT_1_BIT;
-    depth_att.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    depth_att.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    depth_att.loadOp =
+        load ? VK_ATTACHMENT_LOAD_OP_LOAD : VK_ATTACHMENT_LOAD_OP_CLEAR;
+    depth_att.storeOp = target ? VK_ATTACHMENT_STORE_OP_DONT_CARE
+                               : VK_ATTACHMENT_STORE_OP_STORE;
     depth_att.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
     depth_att.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    depth_att.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    depth_att.initialLayout =
+        load ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+             : VK_IMAGE_LAYOUT_UNDEFINED;
     depth_att.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
     atts[att_count] = depth_att;
 
@@ -340,8 +356,35 @@ static b32 butter_create_render_pass(butter_context_t *context) {
 
   vk_result_t res;
   if ((res = vkCreateRenderPass(context->device, &render_pass_create_info, null,
-                                &context->render_pass)) != VK_SUCCESS) {
+                                out)) != VK_SUCCESS) {
     butter_log_error("Could not create render pass: %d", res);
+    return false;
+  }
+
+  return true;
+}
+
+//
+//
+//
+
+static b32 butter_create_render_passes(butter_context_t *context) {
+  if (!butter_create_render_pass(context, false, false, &context->render_pass))
+    return false;
+
+  if (!butter_create_render_pass(context, true, false,
+                                 &context->render_pass_load)) {
+    vkDestroyRenderPass(context->device, context->render_pass, null);
+    context->render_pass = VK_NULL_HANDLE;
+    return false;
+  }
+
+  if (!butter_create_render_pass(context, false, true,
+                                 &context->render_pass_target)) {
+    vkDestroyRenderPass(context->device, context->render_pass_load, null);
+    context->render_pass_load = VK_NULL_HANDLE;
+    vkDestroyRenderPass(context->device, context->render_pass, null);
+    context->render_pass = VK_NULL_HANDLE;
     return false;
   }
 
@@ -365,9 +408,8 @@ static b32 butter_create_render_pass(butter_context_t *context) {
  * @return true on success, false on error.
  */
 static b32 butter_create_framebuffers(butter_context_t *context) {
-  if (!context->framebuffers)
-    context->framebuffers = arena_alloc_zeroed(context->arena, vk_framebuffer_t,
-                                               context->image_count);
+  context->framebuffers = arena_alloc_zeroed(
+      context->attachment_arena, vk_framebuffer_t, context->image_count);
 
   for (u32 i = 0; i < context->image_count; i++) {
     b32 msaa = context->aa_samples > 1;
@@ -428,6 +470,192 @@ static void butter_destroy_framebuffers(butter_context_t *context) {
 //
 //
 
+static b32 butter_create_sync_primitives(butter_context_t *context) {
+  vk_result_t res;
+  b32 timeline = (context->available_vulkan_features &
+                  BUTTER_FEATURE_TIMELINE_SEMAPHORE) != 0;
+
+  vk_semaphore_create_info_t semaphore_info = {0};
+  semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+
+  context->rendering_finished = arena_alloc_zeroed(
+      context->swapchain_arena, vk_semaphore_t, context->image_count);
+  context->image_available = arena_alloc_zeroed(
+      context->swapchain_arena, vk_semaphore_t, context->frames_in_flight);
+
+  for (u32 i = 0; i < context->image_count; i++)
+    if ((res = vkCreateSemaphore(context->device, &semaphore_info, null,
+                                 &context->rendering_finished[i])) !=
+        VK_SUCCESS) {
+      butter_log_error("Could not create rendering finished semaphore: %d",
+                       res);
+      return false;
+    }
+
+  for (u32 i = 0; i < context->frames_in_flight; i++)
+    if ((res = vkCreateSemaphore(context->device, &semaphore_info, null,
+                                 &context->image_available[i])) != VK_SUCCESS) {
+      butter_log_error("Could not create image available semaphore: %d", res);
+      return false;
+    }
+
+  if (timeline) {
+#ifdef VK_API_VERSION_1_2
+    vk_semaphore_type_create_info_t semaphore_type_info = {0};
+    semaphore_type_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO;
+    semaphore_type_info.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
+    semaphore_type_info.initialValue = 0;
+
+    vk_semaphore_create_info_t timeline_info = {0};
+    timeline_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+    timeline_info.pNext = &semaphore_type_info;
+
+    if ((res = vkCreateSemaphore(context->device, &timeline_info, null,
+                                 &context->timeline_semaphore)) != VK_SUCCESS) {
+      butter_log_error("Could not create timeline semaphore: %d", res);
+      return false;
+    }
+
+    context->timeline_value = 0;
+#else
+    butter_log_fatal(
+        "Timeline semaphores requested but Vulkan 1.2 unavailable");
+    return false;
+#endif
+  } else {
+    vk_fence_create_info_t fence_info = {0};
+    fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+    fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+
+    context->in_flight_fences = arena_alloc_zeroed(
+        context->swapchain_arena, vk_fence_t, context->frames_in_flight);
+
+    for (u32 i = 0; i < context->frames_in_flight; i++)
+      if ((res = vkCreateFence(context->device, &fence_info, null,
+                               &context->in_flight_fences[i])) != VK_SUCCESS) {
+        butter_log_error("Could not create in flight fence: %d", res);
+        return false;
+      }
+  }
+
+  return true;
+}
+
+//
+//
+//
+
+static void butter_destroy_sync_primitives(butter_context_t *context) {
+  if (context->rendering_finished)
+    for (u32 i = 0; i < context->image_count; i++)
+      if (context->rendering_finished[i])
+        vkDestroySemaphore(context->device, context->rendering_finished[i],
+                           null);
+
+  if (context->image_available)
+    for (u32 i = 0; i < context->frames_in_flight; i++)
+      if (context->image_available[i])
+        vkDestroySemaphore(context->device, context->image_available[i], null);
+
+  if (context->in_flight_fences && (context->available_vulkan_features &
+                                    BUTTER_FEATURE_TIMELINE_SEMAPHORE) == 0)
+    for (u32 i = 0; i < context->frames_in_flight; i++)
+      if (context->in_flight_fences[i])
+        vkDestroyFence(context->device, context->in_flight_fences[i], null);
+
+#ifdef VK_API_VERSION_1_2
+  if (context->timeline_semaphore)
+    vkDestroySemaphore(context->device, context->timeline_semaphore, null);
+#endif
+
+  context->rendering_finished = null;
+  context->image_available = null;
+  context->in_flight_fences = null;
+  context->timeline_semaphore = VK_NULL_HANDLE;
+}
+
+//
+//
+//
+
+static b32 butter_create_command_buffers(butter_context_t *context) {
+  if (context->cmd_pool == VK_NULL_HANDLE)
+    return true;
+
+  vk_command_buffer_allocate_info_t alloc_info = {0};
+  alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+  alloc_info.commandPool = context->cmd_pool;
+  alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+  alloc_info.commandBufferCount = context->frames_in_flight;
+
+  context->cmds = arena_alloc_zeroed(
+      context->swapchain_arena, vk_command_buffer_t, context->frames_in_flight);
+
+  vk_result_t res =
+      vkAllocateCommandBuffers(context->device, &alloc_info, context->cmds);
+  if (res != VK_SUCCESS) {
+    butter_log_error("Could not allocate command buffers: %d", res);
+    return false;
+  }
+
+  return true;
+}
+
+static void butter_destroy_command_buffers(butter_context_t *context) {
+  if (context->cmd_pool != VK_NULL_HANDLE)
+    vkResetCommandPool(context->device, context->cmd_pool, 0);
+  context->cmds = null;
+}
+
+static b32 butter_create_effect_pools(butter_context_t *context) {
+  if (context->frames_in_flight == 0)
+    return true;
+
+  context->effect_pools =
+      arena_alloc_zeroed(context->swapchain_arena, vk_descriptor_pool_t,
+                         context->frames_in_flight);
+  context->effect_pool_cap = context->frames_in_flight;
+
+  vk_descriptor_pool_size_t pool_size = {0};
+  pool_size.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+  pool_size.descriptorCount = BUTTER_EFFECT_POOL_SAMPLERS;
+
+  vk_descriptor_pool_create_info_t pool_info = {0};
+  pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+  pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+  pool_info.maxSets = BUTTER_EFFECT_POOL_MAX_SETS;
+  pool_info.poolSizeCount = 1;
+  pool_info.pPoolSizes = &pool_size;
+
+  for (u32 i = 0; i < context->frames_in_flight; i++)
+    if (vkCreateDescriptorPool(context->device, &pool_info, null,
+                               &context->effect_pools[i]) != VK_SUCCESS) {
+      butter_log_error("Could not create effect descriptor pool");
+      return false;
+    }
+
+  return true;
+}
+
+//
+//
+//
+
+static void butter_destroy_effect_pools(butter_context_t *context) {
+  if (context->effect_pools) {
+    for (u32 i = 0; i < context->effect_pool_cap; i++)
+      if (context->effect_pools[i] != VK_NULL_HANDLE)
+        vkDestroyDescriptorPool(context->device, context->effect_pools[i],
+                                null);
+    context->effect_pools = null;
+  }
+  context->effect_pool_cap = 0;
+}
+
+//
+//
+//
+
 /**
  * @brief Destroy the depth target.
  *
@@ -467,6 +695,9 @@ void butter_destroy_swapchain_resources(butter_context_t *context) {
   butter_destroy_framebuffers(context);
   butter_destroy_aa_resources(context);
   butter_destroy_depth_resources(context);
+  butter_destroy_sync_primitives(context);
+  butter_destroy_command_buffers(context);
+  butter_destroy_effect_pools(context);
 
   if (context->image_views) {
     for (u32 i = 0; i < context->image_count; i++)
@@ -493,20 +724,33 @@ b32 butter_recreate_render_resources(butter_context_t *context) {
   butter_destroy_framebuffers(context);
   butter_destroy_aa_resources(context);
   butter_destroy_depth_resources(context);
+  arena_clear(context->attachment_arena);
 
   if (context->render_pass) {
     vkDestroyRenderPass(context->device, context->render_pass, null);
     context->render_pass = VK_NULL_HANDLE;
   }
 
+  if (context->render_pass_load) {
+    vkDestroyRenderPass(context->device, context->render_pass_load, null);
+    context->render_pass_load = VK_NULL_HANDLE;
+  }
+
+  if (context->render_pass_target) {
+    vkDestroyRenderPass(context->device, context->render_pass_target, null);
+    context->render_pass_target = VK_NULL_HANDLE;
+  }
+
   context->aa_samples = butter_aa_resolve_budgeted(context);
-  if (!butter_create_render_pass(context))
+  if (!butter_create_render_passes(context))
     return false;
   if (!butter_create_aa_resources(context))
     return false;
   if (context->enable_depth && !butter_create_depth_resources(context))
     return false;
   if (!butter_create_framebuffers(context))
+    return false;
+  if (!butter_rebuild_targets(context))
     return false;
 
   return true;
@@ -515,6 +759,8 @@ b32 butter_recreate_render_resources(butter_context_t *context) {
 b32 butter_create_swapchain(butter_context_t *context, u32 latency_cap,
                             u32 desired_width, u32 desired_height) {
   butter_log_debug("Creating swapchain");
+  arena_clear(context->swapchain_arena);
+  arena_clear(context->attachment_arena);
 
   vk_surface_capabilities_khr_t caps;
   vk_result_t res = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
@@ -617,6 +863,16 @@ b32 butter_create_swapchain(butter_context_t *context, u32 latency_cap,
       context->render_pass_samples != context->aa_samples) {
     vkDestroyRenderPass(context->device, context->render_pass, null);
     context->render_pass = VK_NULL_HANDLE;
+
+    if (context->render_pass_load) {
+      vkDestroyRenderPass(context->device, context->render_pass_load, null);
+      context->render_pass_load = VK_NULL_HANDLE;
+    }
+
+    if (context->render_pass_target) {
+      vkDestroyRenderPass(context->device, context->render_pass_target, null);
+      context->render_pass_target = VK_NULL_HANDLE;
+    }
   }
 
   vk_swapchain_create_info_khr_t swapchain_create_info = {0};
@@ -627,7 +883,8 @@ b32 butter_create_swapchain(butter_context_t *context, u32 latency_cap,
   swapchain_create_info.imageColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
   swapchain_create_info.imageExtent = context->extent;
   swapchain_create_info.imageArrayLayers = 1;
-  swapchain_create_info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+  swapchain_create_info.imageUsage =
+      VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
   swapchain_create_info.preTransform = caps.currentTransform;
   swapchain_create_info.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
   swapchain_create_info.presentMode = chosen_mode;
@@ -649,15 +906,15 @@ b32 butter_create_swapchain(butter_context_t *context, u32 latency_cap,
                                      &image_count, null)) != VK_SUCCESS)
     butter_log_error("Could not get swapchain images count");
 
-  context->images = arena_alloc_zeroed(context->arena, vk_image_t, image_count);
+  context->images =
+      arena_alloc_zeroed(context->swapchain_arena, vk_image_t, image_count);
   if ((res = vkGetSwapchainImagesKHR(context->device, context->swapchain,
                                      &image_count, context->images)) !=
       VK_SUCCESS)
     butter_log_error("Could not get swapchain images");
 
-  if (!context->image_views)
-    context->image_views = arena_alloc_zeroed(context->arena, vk_image_view_t,
-                                              context->image_count);
+  context->image_views = arena_alloc_zeroed(
+      context->swapchain_arena, vk_image_view_t, context->image_count);
 
   vk_image_view_create_info_t image_view_create_info = {0};
   image_view_create_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
@@ -688,10 +945,25 @@ b32 butter_create_swapchain(butter_context_t *context, u32 latency_cap,
   if (context->enable_depth && !butter_create_depth_resources(context))
     return false;
 
-  if (!context->render_pass && !butter_create_render_pass(context))
+  if (!context->render_pass && !butter_create_render_passes(context))
     return false;
 
   if (!butter_create_framebuffers(context))
+    return false;
+
+  if (!butter_ensure_dynamic_buffers(context))
+    return false;
+
+  if (!butter_create_sync_primitives(context))
+    return false;
+
+  if (!butter_create_command_buffers(context))
+    return false;
+
+  if (!butter_create_effect_pools(context))
+    return false;
+
+  if (!butter_rebuild_targets(context))
     return false;
 
   context->swapchain_fresh = true;
@@ -704,75 +976,12 @@ vk_result_t butter_update_surface(butter_context_t *context, u32 latency_cap,
   if (res != VK_SUCCESS)
     butter_log_error("Could not wait for device idle");
 
-#ifdef VK_API_VERSION_1_2
-  if (context->available_vulkan_features & BUTTER_FEATURE_TIMELINE_SEMAPHORE) {
-    if (context->timeline_semaphore) {
-      vkDestroySemaphore(context->device, context->timeline_semaphore, NULL);
-      context->timeline_semaphore = VK_NULL_HANDLE;
-    }
-    vk_semaphore_type_create_info_t type_info = {0};
-    type_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO;
-    type_info.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
-    type_info.initialValue = 0;
-
-    vk_semaphore_create_info_t sem_info = {0};
-    sem_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-    sem_info.pNext = &type_info;
-
-    vkCreateSemaphore(context->device, &sem_info, NULL,
-                      &context->timeline_semaphore);
-    context->timeline_value = 0;
-    butter_log_debug("Timeline reset: timeline_value=0, image_count=%u",
-                     context->image_count);
-  }
-#endif
-
   butter_destroy_swapchain_resources(context);
 
   if (!butter_create_swapchain(context, latency_cap, desired_width,
                                desired_height)) {
     butter_log_debug("Could not create swapchain, probably out of date");
     return VK_ERROR_OUT_OF_DATE_KHR;
-  }
-
-  for (u32 i = 0; i < context->image_count; i++) {
-    if (context->rendering_finished[i])
-      vkDestroySemaphore(context->device, context->rendering_finished[i], null);
-  }
-
-  for (u32 i = 0; i < context->frames_in_flight; i++) {
-    if (context->image_available[i])
-      vkDestroySemaphore(context->device, context->image_available[i], null);
-    if ((context->available_vulkan_features &
-         BUTTER_FEATURE_TIMELINE_SEMAPHORE) == 0 &&
-        context->in_flight_fences[i])
-      vkDestroyFence(context->device, context->in_flight_fences[i], null);
-  }
-
-  vk_semaphore_create_info_t semaphore_info = {0};
-  semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-
-  vk_fence_create_info_t fence_info = {0};
-  fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-  fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-
-  for (u32 i = 0; i < context->image_count; i++) {
-    if ((res = vkCreateSemaphore(context->device, &semaphore_info, null,
-                                 &context->rendering_finished[i])) !=
-        VK_SUCCESS)
-      butter_log_error("Could not create rendering finished semaphore");
-  }
-
-  for (u32 i = 0; i < context->frames_in_flight; i++) {
-    if ((res = vkCreateSemaphore(context->device, &semaphore_info, null,
-                                 &context->image_available[i])) != VK_SUCCESS)
-      butter_log_error("Could not create image available semaphore");
-
-    if ((context->available_vulkan_features &
-         BUTTER_FEATURE_TIMELINE_SEMAPHORE) == 0)
-      if ((res = vkCreateFence(context->device, &fence_info, null,
-                               &context->in_flight_fences[i])) != VK_SUCCESS)
-        butter_log_error("Could not create in flight fence");
   }
 
   context->in_flight_frame_slot = 0;

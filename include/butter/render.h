@@ -10,9 +10,11 @@
 
 #include <butter/render/aa.h>
 #include <butter/render/api.h>
+#include <butter/render/effect.h>
 #include <butter/render/frame.h>
 #include <butter/render/pacing.h>
 #include <butter/render/stats.h>
+#include <butter/render/target.h>
 #include <butter/render/thread.h>
 
 /***********************************/

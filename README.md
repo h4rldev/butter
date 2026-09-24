@@ -1,4 +1,4 @@
-# Butter
+ # Butter
 
 A general-purpose Vulkan renderer for Linux, speaking to both Wayland and X11
 (XCB). Part of the `htils` `bread` `butter` `cheese` stack; `cheese`
@@ -6,7 +6,8 @@ A general-purpose Vulkan renderer for Linux, speaking to both Wayland and X11
 
 ## Current State
 
-Usable, in active development. 2D rendering is solid; 3D is not implemented yet.
+Usable, in active development. 2D rendering is solid and the post-processing
+path (targets, explicit passes, effects) is in place; 3D is not implemented yet.
 The API may still change.
 
 ## Backends
@@ -28,9 +29,21 @@ Chosen at build time:
   bound with minimal redundant state changes. Dynamic vertex/index buffers via
   `butter_alloc_vertices` / `butter_alloc_indices`.
 - **Pipelines** - `butter_create_pipeline` from a `butter_pipeline_desc_t`
-  (shaders, attributes, topology, blend, depth), returned as an opaque
-  `butter_pipeline_t *`. Butter owns and tracks them, and rebuilds them in place
-  when render resources change.
+  (shaders, attributes, topology, blend, depth, push constants), returned as an
+  opaque `butter_pipeline_t *`. Butter owns and tracks them, and rebuilds them
+  in place when render resources change.
+- **Render targets** - `butter_target_create` makes an offscreen, sampleable
+  target. A target is just a texture (`butter_target_texture`), so
+  render-to-texture, magnification and snapshots fall out of the same type.
+  Targets are live: butter rebuilds them in place on resize and AA changes.
+- **Explicit passes** - `butter_pass_begin` / `butter_pass_end` open a pass on a
+  target (or the swapchain when `null`); a pass can be broken and resumed
+  (`color_load`) so work stays in draw order. A frame is a pass on the swapchain.
+- **Post-processing** - `butter_submit_effect` runs a consumer fullscreen draw
+  sampling one or more input textures, with push constants; `butter_snapshot`
+  copies the frame so far into a target. Filters and composites are just effects
+  chained over targets - blur is a thin layer built on this, not core code.
+  Blend modes cover alpha, additive, premultiplied, multiply, screen, min, max.
 - **Shaders** - SPIR-V, loaded from file (`butter_shader_load_file`), memory
   (`butter_shader_from_memory`), or looked up from a name-deduplicated registry
   (`butter_shader_get`).
@@ -40,6 +53,7 @@ Chosen at build time:
 - **Anti-aliasing** - MSAA with device-support discovery (`butter_get_aa_caps`);
   switch mode and sample count at runtime (`butter_set_aa_mode` /
   `butter_set_aa_samples`) and the render pass and pipelines are rebuilt for you.
+  Works across pass break/resume, so effects compose with MSAA.
 - **Frame pacing** - vsync (`butter_set_vsync`), target refresh rate
   (`butter_set_target_refresh_rate`), and a configurable latency cap.
 - **Stats** - `butter_get_stats` reports CPU/GPU frame times, GPU usage, frame
@@ -71,8 +85,11 @@ nix develop
 ## Tests
 
 `src/test` holds small windowed examples - a triangle, and a textured rounded fan
-that cycles MSAA with **A** (the fan's arcs make the AA effect obvious). Build
-them with `conjure test -p wayland-debug` (or `x11-debug`).
+that cycles MSAA with **A** (the fan's arcs make the AA effect obvious). The
+textured example also exercises the post-processing path: it renders into a
+target, submits an effect, and composites a separable Gaussian backdrop blur
+built entirely from the public API (its GLSL lives in `src/test`). Build them
+with `conjure test -p wayland-debug` (or `x11-debug`).
 
 ## License
 

@@ -21,6 +21,7 @@
 #include <butter/internal/init.h>
 #include <butter/internal/stats.h>
 #include <butter/internal/swapchain.h>
+#include <butter/internal/target.h>
 #include <butter/internal/texture.h>
 #include <butter/internal/types.h>
 
@@ -109,166 +110,6 @@ create_platform_surface(vk_instance_t instance,
 //
 
 /**
- * @brief Initialize the per-frame dynamic vertex buffers.
- * @details Allocates one host-visible vertex buffer per swapchain image, each
- * at least @c BUTTER_DYNAMIC_VBO_MIN bytes (floored), and resets the write
- * offset to 0.
- *
- * @param context The butter context.
- * @param dynamic_vbo_size The requested VBO size; floored at
- * @c BUTTER_DYNAMIC_VBO_MIN if smaller.
- *
- * @pre @c context must be a valid butter context.
- *
- * @return true on success, false on error.
- */
-static b32 butter_init_dynamic_vbos(butter_context_t *context,
-                                    u64 dynamic_vbo_size) {
-  context->dynamic_vbo_size = dynamic_vbo_size < BUTTER_DYNAMIC_VBO_MIN
-                                  ? BUTTER_DYNAMIC_VBO_MIN
-                                  : dynamic_vbo_size;
-  context->dynamic_vbo_offset = 0;
-  context->dynamic_vbos = arena_alloc_zeroed(
-      context->arena, struct butter_buffer, context->frames_in_flight);
-
-  for (u32 i = 0; i < context->frames_in_flight; i++) {
-    context->dynamic_vbos[i] =
-        butter_create_buffer(context, context->dynamic_vbo_size,
-                             VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, true);
-    if (context->dynamic_vbos[i].handle == VK_NULL_HANDLE) {
-      butter_log_fatal("Could not create dynamic VBO");
-      return false;
-    }
-  }
-
-  return true;
-}
-
-//
-//
-//
-
-/**
- * @brief Initialize the per-frame dynamic index buffers.
- * @details Allocates one host-visible index buffer per swapchain image, each
- * at least @c BUTTER_DYNAMIC_IBO_MIN bytes (floored), and resets the write
- * offset to 0.
- *
- * @param context The butter context.
- * @param dynamic_ibo_size The requested IBO size; floored at
- * @c BUTTER_DYNAMIC_IBO_MIN if smaller.
- *
- * @pre @c context must be a valid butter context.
- *
- * @return true on success, false on error.
- */
-static b32 butter_init_dynamic_ibos(butter_context_t *context,
-                                    u64 dynamic_ibo_size) {
-  context->dynamic_ibo_size = dynamic_ibo_size < BUTTER_DYNAMIC_IBO_MIN
-                                  ? BUTTER_DYNAMIC_IBO_MIN
-                                  : dynamic_ibo_size;
-  context->dynamic_ibo_offset = 0;
-  context->dynamic_ibos = arena_alloc_zeroed(
-      context->arena, struct butter_buffer, context->frames_in_flight);
-
-  for (u32 i = 0; i < context->frames_in_flight; i++) {
-    context->dynamic_ibos[i] =
-        butter_create_buffer(context, context->dynamic_ibo_size,
-                             VK_BUFFER_USAGE_INDEX_BUFFER_BIT, true);
-    if (context->dynamic_ibos[i].handle == VK_NULL_HANDLE) {
-      butter_log_fatal("Could not create dynamic IBO");
-      return false;
-    }
-  }
-
-  return true;
-}
-
-//
-//
-//
-
-/**
- * @brief Initialize the synchronization primitives.
- * @details Initializes the rendering_finished, image_available, and
- * in_flight_fences unless the timeline semaphore is available, then initializes
- * the timeline_semaphore and timeline_value.
- *
- * @param context The butter context.
- *
- * @pre
- * - @c context must be a valid butter context.
- *
- * @return true on success, false on error.
- */
-static b32 butter_init_sync_primitives(butter_context_t *context) {
-  vk_result_t res;
-  b32 timeline = (context->available_vulkan_features &
-                  BUTTER_FEATURE_TIMELINE_SEMAPHORE) != 0;
-
-  vk_semaphore_create_info_t semaphore_info = {0};
-  semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-
-  context->rendering_finished =
-      arena_alloc_zeroed(context->arena, vk_semaphore_t, context->image_count);
-
-  context->image_available = arena_alloc_zeroed(context->arena, vk_semaphore_t,
-                                                context->frames_in_flight);
-
-  for (u32 i = 0; i < context->image_count; i++)
-    if ((res = vkCreateSemaphore(context->device, &semaphore_info, null,
-                                 &context->rendering_finished[i])) !=
-        VK_SUCCESS)
-      butter_log_error("Could not create rendering finished semaphore: %d",
-                       res);
-
-  for (u32 i = 0; i < context->frames_in_flight; i++)
-    if ((res = vkCreateSemaphore(context->device, &semaphore_info, null,
-                                 &context->image_available[i])) != VK_SUCCESS)
-      butter_log_error("Could not create image available semaphore: %d", res);
-
-  if (timeline) {
-#ifdef VK_API_VERSION_1_2
-    vk_semaphore_type_create_info_t semaphore_type_info = {0};
-    semaphore_type_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO;
-    semaphore_type_info.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
-    semaphore_type_info.initialValue = 0;
-
-    vk_semaphore_create_info_t timeline_info = {0};
-    timeline_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-    timeline_info.pNext = &semaphore_type_info;
-
-    if ((res = vkCreateSemaphore(context->device, &timeline_info, null,
-                                 &context->timeline_semaphore)) != VK_SUCCESS)
-      butter_log_error("Could not create timeline semaphore: %d", res);
-
-    context->timeline_value = 0;
-#else
-    butter_log_fatal(
-        "Timeline semaphores requested but Vulkan 1.2 unavailable");
-    return false;
-#endif
-  } else {
-    vk_fence_create_info_t fence_info = {0};
-    fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-    fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-
-    context->in_flight_fences = arena_alloc_zeroed(context->arena, vk_fence_t,
-                                                   context->frames_in_flight);
-
-    for (u32 i = 0; i < context->frames_in_flight; i++)
-      if ((res = vkCreateFence(context->device, &fence_info, null,
-                               &context->in_flight_fences[i])) != VK_SUCCESS)
-        butter_log_error("Could not create in flight fence: %d", res);
-  }
-  return true;
-}
-
-//
-//
-//
-
-/**
  * @brief Initialize the texture registry.
  * @details Initializes the texture registry with a default texture, and
  * simply allocates the shader registry.
@@ -316,6 +157,16 @@ static b32 butter_init_textures(butter_context_t *context, arena_t *arena) {
   context->texture_descriptor_set_layout =
       butter_create_descriptor_set_layout(context, &binding, 1, layout_flags);
 
+  butter_sampler_desc_t target_sampler_desc =
+      butter_sampler_desc_linear_clamp();
+  context->default_sampler =
+      butter_create_sampler(context, &target_sampler_desc);
+
+  if (context->default_sampler == VK_NULL_HANDLE) {
+    butter_log_fatal("Failed to create default sampler");
+    return false;
+  }
+
   butter_sampler_desc_t default_sampler_desc =
       butter_sampler_desc_nearest_clamp();
   vk_sampler_t default_sampler =
@@ -353,45 +204,6 @@ static b32 butter_init_textures(butter_context_t *context, arena_t *arena) {
 //
 
 /**
- * @brief Destroy the synchronization primitives.
- * @details Destroys the rendering_finished, image_available. If timeline
- * semaphore is unavailable, it destroys the in_flight_fences, if it is,
- * destroy the timeline_semaphore.
- *
- * @param context The butter context.
- *
- * @pre @c context must be a valid butter context.
- */
-static void butter_destroy_sync_primitives(butter_context_t *context) {
-  for (u32 i = 0; i < context->image_count; i++)
-    if (context->rendering_finished[i])
-      vkDestroySemaphore(context->device, context->rendering_finished[i], null);
-
-  for (u32 i = 0; i < context->frames_in_flight; i++) {
-    if (context->image_available[i])
-      vkDestroySemaphore(context->device, context->image_available[i], null);
-
-    if ((context->available_vulkan_features &
-         BUTTER_FEATURE_TIMELINE_SEMAPHORE) == 0 &&
-        context->in_flight_fences[i])
-      vkDestroyFence(context->device, context->in_flight_fences[i], null);
-  }
-
-#ifdef VK_API_VERSION_1_2
-  if (context->timeline_semaphore)
-    vkDestroySemaphore(context->device, context->timeline_semaphore, null);
-#endif
-
-  context->rendering_finished = null;
-  context->image_available = null;
-  context->in_flight_fences = null;
-}
-
-//
-//
-//
-
-/**
  * @brief Destroy the texture registry.
  * @details Destroys the texture registry, destroys the default texture,
  * texture descriptor pool, and texture descriptor set layout if they exist,
@@ -408,6 +220,9 @@ static void butter_destroy_textures(butter_context_t *context) {
     butter_destroy_texture(context,
                            context->texture_registry.entries[0].texture);
   }
+
+  if (context->default_sampler)
+    butter_destroy_sampler(context, context->default_sampler);
 
   for (u32 i = 0; i < context->texture_descriptor_pool_count; i++)
     if (context->texture_descriptor_pools[i])
@@ -548,6 +363,19 @@ butter_context_t *butter_create(arena_t *arena, vk_instance_t instance,
   context->driver_version = driver_version;
   context->instance = instance;
   context->arena = arena;
+
+  context->swapchain_arena = arena_new(MiB(1), KiB(64));
+  if (!context->swapchain_arena) {
+    butter_log_fatal("Could not create swapchain arena");
+    goto fail;
+  }
+
+  context->attachment_arena = arena_new(MiB(1), KiB(64));
+  if (!context->attachment_arena) {
+    butter_log_fatal("Could not create attachment arena");
+    goto fail;
+  }
+
   context->enable_depth = enable_depth;
   context->aa_samples = 1;
 
@@ -602,14 +430,22 @@ butter_context_t *butter_create(arena_t *arena, vk_instance_t instance,
   context->available_mode_count = mode_count;
   context->available_modes = available_modes;
 
+  context->dynamic_ibo_size = dynamic_ibo_size;
+  context->dynamic_vbo_size = dynamic_vbo_size;
+
+  vk_command_pool_create_info_t cmd_pool_info = {0};
+  cmd_pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+  cmd_pool_info.queueFamilyIndex = context->queue_family;
+  cmd_pool_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+
+  if ((res = vkCreateCommandPool(context->device, &cmd_pool_info, null,
+                                 &context->cmd_pool)) != VK_SUCCESS) {
+    butter_log_fatal("Could not create command pool: %d", res);
+    goto fail;
+  }
+
   if (!butter_create_swapchain(context, latency_cap, width, height))
     goto fail;
-
-  vk_command_pool_create_info_t pool_info = {0};
-  pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-  pool_info.queueFamilyIndex = context->queue_family;
-  pool_info.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT |
-                    VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
 
   vk_pipeline_cache_create_info_t pipeline_cache_info = {0};
   pipeline_cache_info.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
@@ -631,20 +467,17 @@ butter_context_t *butter_create(arena_t *arena, vk_instance_t instance,
     context->pipeline_cache = VK_NULL_HANDLE;
   }
 
+  vk_command_pool_create_info_t pool_info = {0};
+  pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+  pool_info.queueFamilyIndex = context->queue_family;
+  pool_info.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT |
+                    VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+
   if ((res = vkCreateCommandPool(context->device, &pool_info, null,
                                  &context->upload_pool_sync)) != VK_SUCCESS) {
     butter_log_error("Could not create synchronous upload pool: %d", res);
     context->upload_pool_sync = VK_NULL_HANDLE;
   }
-
-  if (!butter_init_dynamic_vbos(context, dynamic_vbo_size))
-    goto fail;
-
-  if (!butter_init_dynamic_ibos(context, dynamic_ibo_size))
-    goto fail;
-
-  if (!butter_init_sync_primitives(context))
-    goto fail;
 
   if (mtx_init(&context->render_mutex, mtx_plain) != thrd_success)
     goto fail;
@@ -684,20 +517,36 @@ void butter_destroy(butter_context_t *context) {
       butter_log_error("Could not wait for device idle");
   }
 
+  butter_destroy_targets(context);
+
   if (context->dynamic_vbos)
-    for (u32 i = 0; i < context->frames_in_flight; i++)
+    for (u32 i = 0; i < context->dynamic_cap; i++)
       butter_destroy_buffer(context, &context->dynamic_vbos[i]);
 
   if (context->dynamic_ibos)
-    for (u32 i = 0; i < context->frames_in_flight; i++)
+    for (u32 i = 0; i < context->dynamic_cap; i++)
       butter_destroy_buffer(context, &context->dynamic_ibos[i]);
 
-  butter_destroy_sync_primitives(context);
   butter_destroy_swapchain_resources(context);
+
+  if (context->cmd_pool) {
+    vkDestroyCommandPool(context->device, context->cmd_pool, null);
+    context->cmd_pool = VK_NULL_HANDLE;
+  }
 
   if (context->render_pass) {
     butter_log_debug("Destroying render pass");
     vkDestroyRenderPass(context->device, context->render_pass, null);
+  }
+
+  if (context->render_pass_load) {
+    butter_log_debug("Destroying render pass load");
+    vkDestroyRenderPass(context->device, context->render_pass_load, null);
+  }
+
+  if (context->render_pass_target) {
+    butter_log_debug("Destroying render pass target");
+    vkDestroyRenderPass(context->device, context->render_pass_target, null);
   }
 
   mtx_destroy(&context->render_mutex);
@@ -755,4 +604,49 @@ void butter_destroy(butter_context_t *context) {
   if (context->instance)
     vkDestroyInstance(context->instance, null);
   context->instance = VK_NULL_HANDLE;
+
+  if (context->attachment_arena)
+    arena_free(context->attachment_arena);
+  if (context->swapchain_arena)
+    arena_free(context->swapchain_arena);
+}
+
+b32 butter_ensure_dynamic_buffers(butter_context_t *context) {
+  if (context->frames_in_flight <= context->dynamic_cap)
+    return true;
+
+  u32 old_cap = context->dynamic_cap;
+  u32 cap = context->frames_in_flight;
+
+  struct butter_buffer *vbos =
+      arena_alloc_zeroed(context->arena, struct butter_buffer, cap);
+  struct butter_buffer *ibos =
+      arena_alloc_zeroed(context->arena, struct butter_buffer, cap);
+
+  for (u32 i = 0; i < old_cap; i++) {
+    vbos[i] = context->dynamic_vbos[i];
+    ibos[i] = context->dynamic_ibos[i];
+  }
+
+  context->dynamic_vbos = vbos;
+  context->dynamic_ibos = ibos;
+  context->dynamic_cap = cap;
+
+  for (u32 i = old_cap; i < cap; i++) {
+    vbos[i] = butter_create_buffer(context, context->dynamic_vbo_size,
+                                   VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, true);
+    if (vbos[i].handle == VK_NULL_HANDLE) {
+      butter_log_fatal("Could not create dynamic VBO");
+      return false;
+    }
+
+    ibos[i] = butter_create_buffer(context, context->dynamic_ibo_size,
+                                   VK_BUFFER_USAGE_INDEX_BUFFER_BIT, true);
+    if (ibos[i].handle == VK_NULL_HANDLE) {
+      butter_log_fatal("Could not create dynamic IBO");
+      return false;
+    }
+  }
+
+  return true;
 }

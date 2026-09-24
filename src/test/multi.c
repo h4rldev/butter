@@ -9,7 +9,6 @@
 #include <htils/file.h>
 #include <htils/string.h>
 
-#include <bread/backend.h>
 #include <bread/event.h>
 #include <bread/input.h>
 #include <bread/window.h>
@@ -62,6 +61,9 @@ typedef struct {
   f32 r;
   f32 g;
   f32 b;
+  u32 pending_w;
+  u32 pending_h;
+  b32 resize_dirty;
 } bread_event_data_t;
 
 f32 random_f32(void) { return (f32)rand() / (f32)RAND_MAX; }
@@ -97,9 +99,11 @@ void bread_event_callback(bread_event_t *event, void *userdata) {
   case BREAD_EVENT_WINDOW_RESIZE:
     butter_log_debug("width: %d, height: %d", event->data.resize.width,
                      event->data.resize.height);
-    butter_set_pending_resize(data->butter, event->data.resize.width,
-                              event->data.resize.height);
+    data->pending_w = event->data.resize.width;
+    data->pending_h = event->data.resize.height;
+    data->resize_dirty = true;
     break;
+
   default:
     break;
   }
@@ -258,6 +262,12 @@ int main(void) {
   butter_start_render_thread(butter, per_frame_arenas[current_frame_arena]);
   while (bread_window_should_close(&window) == false) {
     bread_window_poll(&window);
+
+    if (event_data->resize_dirty) {
+      butter_set_pending_resize(butter, event_data->pending_w,
+                                event_data->pending_h);
+      event_data->resize_dirty = false;
+    }
 
     butter_set_clear_color(butter, event_data->r, event_data->g, event_data->b,
                            1.0f);

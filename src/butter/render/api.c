@@ -44,7 +44,6 @@ butter_t *butter_init(arena_t *arena, butter_surface_info_t *surface_info,
     return null;
   }
 
-  vk_result_t res;
   butter_log_debug("Checking for vulkan support");
   if (!butter_is_vulkan_available())
     return null;
@@ -65,37 +64,6 @@ butter_t *butter_init(arena_t *arena, butter_surface_info_t *surface_info,
     return null;
   }
 
-  butter_log_debug("Creating command pool");
-  vk_command_pool_create_info_t pool_info = {0};
-  pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-  pool_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-  pool_info.queueFamilyIndex = butter->queue_family;
-
-  if ((res = vkCreateCommandPool(butter->device, &pool_info, null,
-                                 &butter->cmd_pool)) != VK_SUCCESS) {
-    butter_log_fatal("Could not create command pool: %d");
-    butter_destroy(butter);
-    return null;
-  }
-
-  butter->cmds =
-      arena_alloc_zeroed(arena, vk_command_buffer_t, butter->frames_in_flight);
-
-  vk_command_buffer_allocate_info_t alloc_info = {0};
-  alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-  alloc_info.commandPool = butter->cmd_pool;
-  alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-  alloc_info.commandBufferCount = butter->frames_in_flight;
-
-  butter_log_debug("Allocating command buffers");
-  if ((res = vkAllocateCommandBuffers(butter->device, &alloc_info,
-                                      butter->cmds)) != VK_SUCCESS) {
-    butter_log_fatal("Could not allocate command buffers: %d", res);
-    vkDestroyCommandPool(butter->device, butter->cmd_pool, null);
-    butter_destroy(butter);
-    return null;
-  }
-
   butter_stats_init(butter);
 
   return butter;
@@ -106,8 +74,8 @@ void butter_end(butter_t *butter) {
     butter_log_debug("Butter context already destroyed");
     return;
   }
+
   vkDeviceWaitIdle(butter->device);
-  vkDestroyCommandPool(butter->device, butter->cmd_pool, null);
   butter_destroy(butter);
 }
 

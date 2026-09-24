@@ -54,8 +54,9 @@ static butter_shader_t *butter_shader_register(butter_t *butter, arena_t *arena,
 
     struct butter_shader *next =
         arena_alloc_zeroed(arena, struct butter_shader, new_capacity);
-    memcpy(next, butter->shader_registry->shaders,
-           butter->shader_registry->count * sizeof(struct butter_shader));
+    if (butter->shader_registry->count > 0)
+      memcpy(next, butter->shader_registry->shaders,
+             butter->shader_registry->count * sizeof(struct butter_shader));
     butter->shader_registry->shaders = next;
     butter->shader_registry->capacity = new_capacity;
   }

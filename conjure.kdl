@@ -15,7 +15,9 @@ project {
   profiles {
     wayland-debug {
       artifact "butter-wayland-debug"
-      c_flags -DBUTTER_DEBUG -DBUTTER_WAYLAND -ggdb -g -Og -fsanitize=address,undefined,leak -fno-sanitize-recover=all -fno-omit-frame-pointer -fno-optimize-sibling-calls -fsanitize-address-use-after-scope -fno-common -Wall -Wextra -Wpedantic -Wno-unused-parameter
+      c_flags -DBUTTER_DEBUG -DBUTTER_WAYLAND -ggdb -g -Og "-fsanitize=address,undefined,leak" "-fno-sanitize-recover=all" -fno-omit-frame-pointer -fno-optimize-sibling-calls -fsanitize-address-use-after-scope -fno-common -Wall -Wextra -Wpedantic -Wno-unused-parameter
+      ld_flags "-fsanitize=address,undefined,leak" "-fno-sanitize-recover=all" -fno-omit-frame-pointer -fno-optimize-sibling-calls -fsanitize-address-use-after-scope -fno-common -static-libasan
+
 
       tests {
         multi {
@@ -62,7 +64,8 @@ project {
 
     x11-debug {
       link static
-      c_flags -DBUTTER_DEBUG -DBUTTER_X11 -ggdb -g -Og -fsanitize=address,undefined,leak -fno-sanitize-recover=all -fno-omit-frame-pointer -fno-optimize-sibling-calls -fsanitize-address-use-after-scope -fno-common -Wall -Wextra -Wpedantic -Wno-unused-parameter
+      c_flags -DBUTTER_DEBUG -DBUTTER_X11 -ggdb -g -Og "-fsanitize=address,undefined,leak" "-fno-sanitize-recover=all" -fno-omit-frame-pointer -fno-optimize-sibling-calls -fsanitize-address-use-after-scope -fno-common -Wall -Wextra -Wpedantic -Wno-unused-parameter 
+      ld_flags "-fsanitize=address,undefined,leak" "-fno-sanitize-recover=all" -fno-omit-frame-pointer -fno-optimize-sibling-calls -fsanitize-address-use-after-scope -fno-common -static-libasan
 
       artifact "butter-x11-debug"
 

@@ -93,6 +93,10 @@ typedef VkImageViewCreateInfo vk_image_view_create_info_t;
 typedef VkImageMemoryBarrier vk_image_memory_barrier_t;
 typedef VkImageSubresourceLayers vk_image_subresource_layers_t;
 typedef VkImageSubresourceRange vk_image_subresource_range_t;
+typedef VkImageCopy vk_image_copy_t;
+typedef VkImageUsageFlags vk_image_usage_flags_t;
+typedef VkImageLayout vk_image_layout_t;
+typedef VkAccessFlags vk_access_flags_t;
 
 typedef VkFilter vk_filter_t;
 
@@ -136,12 +140,14 @@ typedef VkDescriptorSetLayoutCreateFlags
     vk_descriptor_set_layout_create_flags_t;
 
 typedef VkShaderStageFlagBits vk_shader_stage_flags_t;
+typedef VkShaderStageFlags vk_shader_stage_flags_mask_t;
 
 typedef VkPipeline vk_pipeline_t;
 typedef VkPipelineCache vk_pipeline_cache_t;
 typedef VkPipelineCacheCreateInfo vk_pipeline_cache_create_info_t;
 typedef VkPipelineLayout vk_pipeline_layout_t;
 typedef VkPipelineLayoutCreateInfo vk_pipeline_layout_create_info_t;
+typedef VkPushConstantRange vk_push_constant_range_t;
 typedef VkPipelineShaderStageCreateInfo vk_pipeline_shader_stage_create_info_t;
 typedef VkPolygonMode vk_polygon_mode_t;
 typedef VkFrontFace vk_front_face_t;

@@ -24,11 +24,12 @@ void butter_submit_draws(butter_t *butter, const butter_draw_cmd_t *cmds,
     return;
   }
 
+  vk_extent2d_t extent = butter->pass_extent;
   vk_viewport_t viewport = {0};
   viewport.x = 0.0f;
-  viewport.y = (f32)butter->extent.height;
-  viewport.width = (f32)butter->extent.width;
-  viewport.height = -(f32)butter->extent.height;
+  viewport.y = (f32)extent.height;
+  viewport.width = (f32)extent.width;
+  viewport.height = -(f32)extent.height;
   viewport.minDepth = 0.0f;
   viewport.maxDepth = 1.0f;
 
@@ -51,7 +52,7 @@ void butter_submit_draws(butter_t *butter, const butter_draw_cmd_t *cmds,
     vk_rect2d_t scissor =
         draw->scissor_enabled
             ? draw->scissor
-            : (vk_rect2d_t){.offset = {0, 0}, .extent = butter->extent};
+            : (vk_rect2d_t){.offset = {0, 0}, .extent = extent};
 
     if (!scissor_set ||
         memcmp(&scissor, &bound_scissor, sizeof(scissor)) != 0) {
@@ -66,6 +67,13 @@ void butter_submit_draws(butter_t *butter, const butter_draw_cmd_t *cmds,
       bound_pipeline = draw->pipeline->pipeline;
     }
 
+    if (draw->push_constants && draw->push_constant_size > 0 &&
+        draw->pipeline->push_constant_stage_flags > 0) {
+      vkCmdPushConstants(cmd, draw->pipeline->layout,
+                         draw->pipeline->push_constant_stage_flags, 0,
+                         draw->push_constant_size, draw->push_constants);
+    }
+
     if (draw->pipeline->layout != bound_layout) {
       bound_layout = draw->pipeline->layout;
       bound_set = VK_NULL_HANDLE;
@@ -76,7 +84,32 @@ void butter_submit_draws(butter_t *butter, const butter_draw_cmd_t *cmds,
                              &draw->vertex_offset);
 
     if (draw->pipeline->uses_descriptors) {
-      if (draw->descriptor_sets && draw->descriptor_set_count > 0) {
+      if (draw->input_textures && draw->input_texture_count > 0 &&
+          (butter->available_vulkan_features &
+           BUTTER_FEATURE_PUSH_DESCRIPTORS)) {
+        vk_descriptor_image_info_t image_infos[draw->input_texture_count];
+        vk_write_descriptor_set_t writes[draw->input_texture_count];
+        for (u32 j = 0; j < draw->input_texture_count; j++) {
+          image_infos[j] = (vk_descriptor_image_info_t){
+              .imageView = draw->input_textures[j]->view,
+              .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+              .sampler = draw->input_textures[j]->sampler,
+          };
+          writes[j] = (vk_write_descriptor_set_t){
+              .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+              .dstBinding = j,
+              .dstArrayElement = 0,
+              .descriptorCount = 1,
+              .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+              .pImageInfo = &image_infos[j],
+          };
+        }
+
+        vkCmdPushDescriptorSet(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                               draw->pipeline->layout, 0,
+                               draw->input_texture_count, writes);
+
+      } else if (draw->descriptor_sets && draw->descriptor_set_count > 0) {
         vk_descriptor_set_t sets[draw->descriptor_set_count];
         for (u32 j = 0; j < draw->descriptor_set_count; j++)
           sets[j] = draw->descriptor_sets[j].set;

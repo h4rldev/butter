@@ -122,6 +122,30 @@ void butter_pipeline_desc_set_vertex_stride(butter_pipeline_desc_t *desc,
 //
 
 /**
+ * @brief Set push constant ranges for a butter pipeline descriptor.
+ *
+ * @details Declares the push constant ranges the pipeline layout exposes. A
+ * draw supplies values with @ref butter_draw_cmd_t.push_constants; butter
+ * pushes using the union of these ranges' stage flags.
+ *
+ * @param desc The pipeline descriptor to set push constants for.
+ * @param ranges The push constant ranges.
+ * @param count The amount of ranges.
+ *
+ * @pre
+ * - @c desc must be a valid pipeline descriptor.
+ * - @c ranges must be a valid pointer to an array of ranges.
+ * - @c count must be greater than 0 and match the size of the ranges array ptr.
+ */
+void butter_pipeline_desc_add_push_constants(butter_pipeline_desc_t *desc,
+                                             vk_push_constant_range_t *ranges,
+                                             u32 count);
+
+//
+//
+//
+
+/**
  * @brief Create a new render pipeline.
  *
  * @details Uses vkCreateGraphicsPipelines to create a new graphics pipeline

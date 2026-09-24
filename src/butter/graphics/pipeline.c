@@ -21,6 +21,7 @@ struct butter_pipeline_retained {
   struct butter_shader *shaders;
   butter_attribute_t *attributes;
   vk_descriptor_set_layout_t *descriptor_set_layouts;
+  vk_push_constant_range_t *push_constant_ranges;
 };
 
 //
@@ -281,13 +282,48 @@ static void map_blend_mode(butter_blend_mode_t blend,
     out->dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
     out->alphaBlendOp = VK_BLEND_OP_ADD;
     break;
+  case BUTTER_BLEND_MULTIPLY:
+    out->blendEnable = VK_TRUE;
+    out->srcColorBlendFactor = VK_BLEND_FACTOR_DST_COLOR;
+    out->dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+    out->colorBlendOp = VK_BLEND_OP_ADD;
+    out->srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+    out->dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+    out->alphaBlendOp = VK_BLEND_OP_ADD;
+    break;
+  case BUTTER_BLEND_SCREEN:
+    out->blendEnable = VK_TRUE;
+    out->srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+    out->dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR;
+    out->colorBlendOp = VK_BLEND_OP_ADD;
+    out->srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+    out->dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+    out->alphaBlendOp = VK_BLEND_OP_ADD;
+    break;
+  case BUTTER_BLEND_MIN:
+    out->blendEnable = VK_TRUE;
+    out->srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+    out->dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
+    out->colorBlendOp = VK_BLEND_OP_MIN;
+    out->srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+    out->dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+    out->alphaBlendOp = VK_BLEND_OP_MIN;
+    break;
+  case BUTTER_BLEND_MAX:
+    out->blendEnable = VK_TRUE;
+    out->srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+    out->dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
+    out->colorBlendOp = VK_BLEND_OP_MAX;
+    out->srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+    out->dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+    out->alphaBlendOp = VK_BLEND_OP_MAX;
+    break;
   default:
     butter_log_error("Unknown blend mode: %d", blend);
     out->blendEnable = VK_FALSE;
     break;
   }
 }
-
 //
 //
 //
@@ -443,9 +479,11 @@ static b32 butter_pipeline_build(butter_t *butter, struct butter_pipeline *p) {
   binding_description.stride = desc->vertex_stride;
   binding_description.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 
-  vk_vertex_input_attribute_description_t *attrs =
-      arena_alloc_zeroed(butter->arena, vk_vertex_input_attribute_description_t,
-                         desc->attribute_count);
+  vk_vertex_input_attribute_description_t *attrs = null;
+  if (desc->attribute_count > 0)
+    attrs = arena_alloc_zeroed(butter->arena,
+                               vk_vertex_input_attribute_description_t,
+                               desc->attribute_count);
   for (u32 i = 0; i < desc->attribute_count; i++) {
     attrs[i].location = desc->attributes[i].location;
     attrs[i].binding = 0;
@@ -456,8 +494,10 @@ static b32 butter_pipeline_build(butter_t *butter, struct butter_pipeline *p) {
   vk_pipeline_vertex_input_state_create_info_t vertex_input = {0};
   vertex_input.sType =
       VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-  vertex_input.vertexBindingDescriptionCount = 1;
-  vertex_input.pVertexBindingDescriptions = &binding_description;
+  vertex_input.vertexBindingDescriptionCount =
+      desc->attribute_count > 0 ? 1 : 0;
+  vertex_input.pVertexBindingDescriptions =
+      desc->attribute_count > 0 ? &binding_description : null;
   vertex_input.vertexAttributeDescriptionCount = desc->attribute_count;
   vertex_input.pVertexAttributeDescriptions = attrs;
 
@@ -521,10 +561,16 @@ static b32 butter_pipeline_build(butter_t *butter, struct butter_pipeline *p) {
   depth_stencil.depthBoundsTestEnable = VK_FALSE;
   depth_stencil.stencilTestEnable = VK_FALSE;
 
+  vk_shader_stage_flags_mask_t push_constant_stage_flags = 0;
+  for (u32 i = 0; i < desc->push_constant_range_count; i++)
+    push_constant_stage_flags |= desc->push_constant_ranges[i].stageFlags;
+
   vk_pipeline_layout_create_info_t layout_info = {0};
   layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
   layout_info.setLayoutCount = desc->descriptor_set_layout_count;
   layout_info.pSetLayouts = desc->descriptor_set_layouts;
+  layout_info.pushConstantRangeCount = desc->push_constant_range_count;
+  layout_info.pPushConstantRanges = desc->push_constant_ranges;
 
   vk_pipeline_layout_t layout;
   if (vkCreatePipelineLayout(butter->device, &layout_info, null, &layout) !=
@@ -565,6 +611,11 @@ static b32 butter_pipeline_build(butter_t *butter, struct butter_pipeline *p) {
   p->pipeline = pipeline;
   p->layout = layout;
   p->uses_descriptors = uses_descriptors;
+  p->push_constant_stage_flags = push_constant_stage_flags;
+  p->set_layout0 = desc->descriptor_set_layout_count > 0
+                       ? desc->descriptor_set_layouts[0]
+                       : VK_NULL_HANDLE;
+
   temp_arena_free(scratch);
   return true;
 
@@ -676,6 +727,8 @@ butter_pipeline_desc_t butter_pipeline_desc_default(void) {
       .vertex_stride = 0,
       .descriptor_set_layouts = null,
       .descriptor_set_layout_count = 0,
+      .push_constant_ranges = null,
+      .push_constant_range_count = 0,
       .topology = BUTTER_TOPOLOGY_TRIANGLE_LIST,
       .polygon_mode = BUTTER_POLYGON_MODE_FILL,
       .cull_mode = BUTTER_CULL_BACK,
@@ -718,6 +771,13 @@ void butter_pipeline_desc_add_attributes(butter_pipeline_desc_t *desc,
 void butter_pipeline_desc_set_vertex_stride(butter_pipeline_desc_t *desc,
                                             u32 stride) {
   desc->vertex_stride = stride;
+}
+
+void butter_pipeline_desc_add_push_constants(butter_pipeline_desc_t *desc,
+                                             vk_push_constant_range_t *ranges,
+                                             u32 count) {
+  desc->push_constant_ranges = ranges;
+  desc->push_constant_range_count = count;
 }
 
 butter_pipeline_t *butter_create_pipeline(butter_t *butter,
@@ -782,6 +842,17 @@ butter_pipeline_t *butter_create_pipeline(butter_t *butter,
       p->retained->descriptor_set_layouts[i] = desc->descriptor_set_layouts[i];
     p->retained->desc.descriptor_set_layouts =
         p->retained->descriptor_set_layouts;
+  }
+
+  if (desc->push_constant_range_count) {
+    p->retained->push_constant_ranges =
+        arena_alloc_zeroed(butter->arena, vk_push_constant_range_t,
+                           desc->push_constant_range_count);
+    if (!p->retained->push_constant_ranges)
+      return null;
+    for (u32 i = 0; i < desc->push_constant_range_count; i++)
+      p->retained->push_constant_ranges[i] = desc->push_constant_ranges[i];
+    p->retained->desc.push_constant_ranges = p->retained->push_constant_ranges;
   }
 
   p->uses_descriptors = desc->descriptor_set_layout_count > 0;

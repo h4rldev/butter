@@ -76,6 +76,9 @@ static int butter_upload_thread(void *userdata) {
       atomic_store(&upload->texture->upload_failed, true);
       atomic_store(&upload->texture->upload_ready, false);
       atomic_store(&upload->texture->upload_cancelled, false);
+      mtx_lock(&butter->upload_mutex);
+      upload->failed = true;
+      mtx_unlock(&butter->upload_mutex);
       continue;
     }
 
@@ -818,8 +821,21 @@ void butter_update_texture_region(butter_t *butter, butter_texture_t *texture,
   upload->failed = false;
   butter->upload_queue_tail = next_tail;
 
+  butter->upload_queue_tail = next_tail;
   cnd_signal(&butter->upload_ready);
+
+  u32 spins = 0;
+  while (!upload->ready && !upload->failed && butter->upload_thread_running &&
+         spins++ < 1000) {
+    mtx_unlock(&butter->upload_mutex);
+    thrd_sleep(&(struct timespec){.tv_nsec = 1000000}, null);
+    mtx_lock(&butter->upload_mutex);
+  }
+  b32 failed = upload->failed;
   mtx_unlock(&butter->upload_mutex);
+
+  if (failed)
+    butter_log_error("Texture region upload failed");
 }
 
 b32 butter_texture_is_ready(const butter_texture_t *texture) {

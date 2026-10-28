@@ -80,7 +80,6 @@ typedef enum {
   BUTTER_BLEND_MIN,
   BUTTER_BLEND_MAX,
   BUTTER_BLEND_COUNT,
-  E
 } butter_blend_mode_t;
 
 typedef enum {

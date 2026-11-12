@@ -213,6 +213,8 @@ typedef struct {
   u32 input_count;
   const void *push_constants;
   u32 push_constant_size;
+  vk_rect2d_t scissor; /**< Device-pixel clip for the effect's triangle. */
+  b32 scissor_enabled; /**< Whether @c scissor is applied. */
 } butter_effect_t;
 
 #endif // !BUTTER_TYPES_H

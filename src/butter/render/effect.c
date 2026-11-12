@@ -37,6 +37,8 @@ void butter_submit_effect(butter_t *butter, const butter_effect_t *effect) {
   cmd.vertex_count = 3;
   cmd.push_constants = effect->push_constants;
   cmd.push_constant_size = effect->push_constant_size;
+  cmd.scissor = effect->scissor;
+  cmd.scissor_enabled = effect->scissor_enabled;
 
   if (effect->input_count > 0) {
     if (!effect->inputs) {

@@ -602,8 +602,9 @@ static b32 butter_create_command_buffers(butter_context_t *context) {
 }
 
 static void butter_destroy_command_buffers(butter_context_t *context) {
-  if (context->cmd_pool != VK_NULL_HANDLE)
-    vkResetCommandPool(context->device, context->cmd_pool, 0);
+  if (context->cmd_pool != VK_NULL_HANDLE && context->cmds != null)
+    vkFreeCommandBuffers(context->device, context->cmd_pool,
+                         context->frames_in_flight, context->cmds);
   context->cmds = null;
 }
 

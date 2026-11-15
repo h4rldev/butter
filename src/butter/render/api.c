@@ -126,7 +126,14 @@ f32 butter_get_target_refresh_rate(const butter_t *butter) {
 void butter_set_pending_resize(butter_t *butter, u32 width, u32 height) {
   if (!butter)
     return;
+
   mtx_lock(&butter->render_mutex);
+  if (!butter->resize_pending && width == butter->extent.width &&
+      height == butter->extent.height) {
+    mtx_unlock(&butter->render_mutex);
+    return;
+  }
+
   butter->pending_width = width;
   butter->pending_height = height;
   butter->resize_pending = true;

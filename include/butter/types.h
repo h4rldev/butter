@@ -147,6 +147,7 @@ typedef struct butter_target butter_target_t;
 typedef struct {
   u32 width;  // 0 = the current swapchain width
   u32 height; // 0 = the current swapchain height
+  f32 scale;  // fraction of the frame size when a dimension is 0; 0 = 1.0.
 } butter_target_desc_t;
 
 typedef struct {

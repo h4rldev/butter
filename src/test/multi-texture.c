@@ -1,6 +1,3 @@
-#include "butter/internal/vk_types.h"
-#include "butter/render/target.h"
-#include "butter/shader.h"
 #include <limits.h>
 #include <math.h>
 #include <stdio.h>
@@ -22,6 +19,7 @@
 #include <butter/graphics.h>
 #include <butter/log.h>
 #include <butter/render.h>
+#include <butter/shader.h>
 #include <butter/types.h>
 
 #define enable_validation true

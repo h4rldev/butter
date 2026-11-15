@@ -180,6 +180,7 @@ struct butter_target {
   u32 samples;
   b32 follow_width;
   b32 follow_height;
+  f32 scale; // fraction of the frame size this target follows at.
   vk_framebuffer_t framebuffer;
   struct butter_texture texture;
   vk_image_t msaa_image;

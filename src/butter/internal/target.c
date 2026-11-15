@@ -238,8 +238,12 @@ b32 butter_target_build(butter_context_t *butter,
 
 b32 butter_target_rebuild(butter_context_t *butter,
                           struct butter_target *target) {
-  u32 width = target->follow_width ? butter->extent.width : target->width;
-  u32 height = target->follow_height ? butter->extent.height : target->height;
+  u32 width = target->follow_width
+                  ? (u32)((f32)butter->extent.width * target->scale)
+                  : target->width;
+  u32 height = target->follow_height
+                   ? (u32)((f32)butter->extent.height * target->scale)
+                   : target->height;
   if (width == 0 || height == 0)
     return true;
 

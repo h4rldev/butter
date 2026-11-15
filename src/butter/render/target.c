@@ -19,8 +19,11 @@ butter_target_t *butter_target_create(butter_t *butter, arena_t *arena,
     return null;
   }
 
-  u32 width = desc->width ? desc->width : butter->extent.width;
-  u32 height = desc->height ? desc->height : butter->extent.height;
+  f32 scale = desc->scale > 0.0f ? desc->scale : 1.0f;
+  u32 width =
+      desc->width ? desc->width : (u32)((f32)butter->extent.width * scale);
+  u32 height =
+      desc->height ? desc->height : (u32)((f32)butter->extent.height * scale);
   if (width == 0 || height == 0) {
     butter_log_error("Render target size is zero");
     return null;
@@ -31,6 +34,7 @@ butter_target_t *butter_target_create(butter_t *butter, arena_t *arena,
   target->height = height;
   target->follow_width = desc->width == 0;
   target->follow_height = desc->height == 0;
+  target->scale = scale;
 
   if (!butter_target_build(butter, target))
     return null;

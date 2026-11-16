@@ -86,6 +86,12 @@ void butter_set_clear_color(butter_t *butter, f32 r, f32 g, f32 b, f32 a) {
   butter->clear_color.color.float32[3] = a;
 }
 
+void butter_set_frame_clear(butter_t *butter, b32 clear) {
+  if (!butter)
+    return;
+  butter->frame_clear = clear;
+}
+
 void butter_set_draw_callback(butter_t *butter, butter_draw_callback_t cb,
                               void *userdata) {
   if (!butter)

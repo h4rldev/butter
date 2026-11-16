@@ -98,6 +98,25 @@ void butter_set_clear_color(butter_t *butter, f32 r, f32 g, f32 b, f32 a);
 //
 
 /**
+ * @brief Enable or disable clearing the swapchain image each frame.
+ * @details Clearing is on by default. When it is off, the frame's first pass
+ * discards whatever the acquired swapchain image contains instead of clearing
+ * it, so a consumer that paints a full-window opaque background every frame
+ * saves the redundant full-attachment clear. The discarded contents are
+ * undefined, so every pixel must be covered by the frame's own drawing.
+ *
+ * @param butter The butter context.
+ * @param clear Whether to clear the swapchain image at the start of each frame.
+ *
+ * @pre @c butter must be a valid butter context.
+ */
+void butter_set_frame_clear(butter_t *butter, b32 clear);
+
+//
+//
+//
+
+/**
  * @brief Set the draw callback for the render thread.
  * @details Sets the callback invoked by the render thread for each frame.
  * Only used when rendering via @ref butter_start_render_thread; manual

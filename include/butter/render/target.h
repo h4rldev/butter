@@ -86,7 +86,8 @@ butter_texture_t *butter_target_texture(butter_target_t *target);
  * @param target The target to render to, or null for the swapchain.
  * @param color_load Load the colour attachment instead of clearing it. Ignored
  * for a @ref butter_target_t, whose pass always clears so the result can be
- * sampled.
+ * sampled. When clearing is disabled with @ref butter_set_frame_clear, a frame
+ * pass that does not load discards the attachment instead of clearing it.
  * @param depth_load Reserved; the depth attachment shares the colour choice.
  *
  * @pre

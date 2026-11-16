@@ -265,17 +265,24 @@ static void butter_destroy_aa_resources(butter_context_t *context) {
  * @details Builds the render pass for the current sample count: a single color
  * attachment when anti-aliasing is off, or a multisampled color attachment with
  * the swapchain image as its resolve target when it is on. The depth
- * attachment, when enabled, matches the color sample count.
+ * attachment, when enabled, matches the color sample count. The load operation
+ * decides whether the pass clears the attachments, keeps their contents, or
+ * discards them.
  *
  * @param context The butter context.
+ * @param color_load The color and depth attachment load operation.
+ * @param target Whether the pass renders into an offscreen target.
+ * @param out The render pass to create.
  *
  * @pre @c context must be a valid butter context.
  *
  * @return true on success, false on error.
  */
-static b32 butter_create_render_pass(butter_context_t *context, b32 load,
-                                     b32 target, vk_render_pass_t *out) {
+static b32 butter_create_render_pass(butter_context_t *context,
+                                     VkAttachmentLoadOp color_load, b32 target,
+                                     vk_render_pass_t *out) {
   b32 msaa = context->aa_samples > 1;
+  b32 load = color_load == VK_ATTACHMENT_LOAD_OP_LOAD;
   vk_sample_count_flag_bits_t samples =
       (vk_sample_count_flag_bits_t)context->aa_samples;
 
@@ -285,8 +292,7 @@ static b32 butter_create_render_pass(butter_context_t *context, b32 load,
   vk_attachment_description_t color_att = {0};
   color_att.format = context->format;
   color_att.samples = msaa ? samples : VK_SAMPLE_COUNT_1_BIT;
-  color_att.loadOp =
-      load ? VK_ATTACHMENT_LOAD_OP_LOAD : VK_ATTACHMENT_LOAD_OP_CLEAR;
+  color_att.loadOp = color_load;
   color_att.storeOp = (target && msaa) ? VK_ATTACHMENT_STORE_OP_DONT_CARE
                                        : VK_ATTACHMENT_STORE_OP_STORE;
   color_att.initialLayout = load ? VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
@@ -322,8 +328,7 @@ static b32 butter_create_render_pass(butter_context_t *context, b32 load,
     vk_attachment_description_t depth_att = {0};
     depth_att.format = VK_FORMAT_D32_SFLOAT;
     depth_att.samples = msaa ? samples : VK_SAMPLE_COUNT_1_BIT;
-    depth_att.loadOp =
-        load ? VK_ATTACHMENT_LOAD_OP_LOAD : VK_ATTACHMENT_LOAD_OP_CLEAR;
+    depth_att.loadOp = color_load;
     depth_att.storeOp = target ? VK_ATTACHMENT_STORE_OP_DONT_CARE
                                : VK_ATTACHMENT_STORE_OP_STORE;
     depth_att.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
@@ -369,18 +374,30 @@ static b32 butter_create_render_pass(butter_context_t *context, b32 load,
 //
 
 static b32 butter_create_render_passes(butter_context_t *context) {
-  if (!butter_create_render_pass(context, false, false, &context->render_pass))
+  if (!butter_create_render_pass(context, VK_ATTACHMENT_LOAD_OP_CLEAR, false,
+                                 &context->render_pass))
     return false;
 
-  if (!butter_create_render_pass(context, true, false,
+  if (!butter_create_render_pass(context, VK_ATTACHMENT_LOAD_OP_LOAD, false,
                                  &context->render_pass_load)) {
     vkDestroyRenderPass(context->device, context->render_pass, null);
     context->render_pass = VK_NULL_HANDLE;
     return false;
   }
 
-  if (!butter_create_render_pass(context, false, true,
+  if (!butter_create_render_pass(context, VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+                                 false, &context->render_pass_noclear)) {
+    vkDestroyRenderPass(context->device, context->render_pass_load, null);
+    context->render_pass_load = VK_NULL_HANDLE;
+    vkDestroyRenderPass(context->device, context->render_pass, null);
+    context->render_pass = VK_NULL_HANDLE;
+    return false;
+  }
+
+  if (!butter_create_render_pass(context, VK_ATTACHMENT_LOAD_OP_CLEAR, true,
                                  &context->render_pass_target)) {
+    vkDestroyRenderPass(context->device, context->render_pass_noclear, null);
+    context->render_pass_noclear = VK_NULL_HANDLE;
     vkDestroyRenderPass(context->device, context->render_pass_load, null);
     context->render_pass_load = VK_NULL_HANDLE;
     vkDestroyRenderPass(context->device, context->render_pass, null);
@@ -737,6 +754,11 @@ b32 butter_recreate_render_resources(butter_context_t *context) {
     context->render_pass_load = VK_NULL_HANDLE;
   }
 
+  if (context->render_pass_noclear) {
+    vkDestroyRenderPass(context->device, context->render_pass_noclear, null);
+    context->render_pass_noclear = VK_NULL_HANDLE;
+  }
+
   if (context->render_pass_target) {
     vkDestroyRenderPass(context->device, context->render_pass_target, null);
     context->render_pass_target = VK_NULL_HANDLE;
@@ -868,6 +890,11 @@ b32 butter_create_swapchain(butter_context_t *context, u32 latency_cap,
     if (context->render_pass_load) {
       vkDestroyRenderPass(context->device, context->render_pass_load, null);
       context->render_pass_load = VK_NULL_HANDLE;
+    }
+
+    if (context->render_pass_noclear) {
+      vkDestroyRenderPass(context->device, context->render_pass_noclear, null);
+      context->render_pass_noclear = VK_NULL_HANDLE;
     }
 
     if (context->render_pass_target) {

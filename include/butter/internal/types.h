@@ -244,6 +244,7 @@ typedef struct butter_context {
 
   vk_render_pass_t render_pass;
   vk_render_pass_t render_pass_load;
+  vk_render_pass_t render_pass_noclear;
   vk_render_pass_t render_pass_target;
   u32 render_pass_samples;
 
@@ -261,6 +262,7 @@ typedef struct butter_context {
   vk_command_pool_t cmd_pool;
   vk_command_buffer_t *cmds;
   vk_clear_value_t clear_color;
+  b32 frame_clear;
 
   vk_descriptor_pool_t *effect_pools;
   u32 effect_pool_cap;

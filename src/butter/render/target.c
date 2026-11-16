@@ -123,7 +123,9 @@ void butter_pass_begin(butter_t *butter, butter_target_t *target,
   rp_begin.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
   rp_begin.renderPass =
       target ? butter->render_pass_target
-             : (load ? butter->render_pass_load : butter->render_pass);
+             : (load ? butter->render_pass_load
+                     : (butter->frame_clear ? butter->render_pass
+                                            : butter->render_pass_noclear));
   rp_begin.framebuffer = framebuffer;
   rp_begin.renderArea.extent = extent;
   rp_begin.renderArea.offset = (vk_offset2d_t){0};

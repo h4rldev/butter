@@ -378,6 +378,7 @@ butter_context_t *butter_create(arena_t *arena, vk_instance_t instance,
 
   context->enable_depth = enable_depth;
   context->aa_samples = 1;
+  context->frame_clear = true;
 
   context->max_render_width = config->max_render_width;
   context->max_render_height = config->max_render_height;
@@ -542,6 +543,11 @@ void butter_destroy(butter_context_t *context) {
   if (context->render_pass_load) {
     butter_log_debug("Destroying render pass load");
     vkDestroyRenderPass(context->device, context->render_pass_load, null);
+  }
+
+  if (context->render_pass_noclear) {
+    butter_log_debug("Destroying render pass no-clear");
+    vkDestroyRenderPass(context->device, context->render_pass_noclear, null);
   }
 
   if (context->render_pass_target) {

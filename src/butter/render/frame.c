@@ -179,11 +179,7 @@ butter_texture_t *butter_snapshot(butter_t *butter, butter_target_t *dst, u32 x,
     return null;
   }
 
-  if (width > dst->texture.width || height > dst->texture.height) {
-    butter_log_error("Snapshot region is larger than the destination target");
-    return null;
-  }
-
+  b32 downscale = width > dst->texture.width || height > dst->texture.height;
   vk_command_buffer_t cmd = butter->cmds[butter->in_flight_frame_slot];
   vk_image_t source = butter->images[butter->pass_image_index];
   vk_image_t dest = dst->texture.image;
@@ -228,8 +224,25 @@ butter_texture_t *butter_snapshot(butter_t *butter, butter_target_t *dst, u32 x,
   region.dstOffset = (vk_offset3d_t){0, 0, 0};
   region.extent = (vk_extent3d_t){width, height, 1};
 
-  vkCmdCopyImage(cmd, source, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dest,
-                 VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+  if (downscale) {
+    vk_image_blit_t blit = {0};
+    blit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    blit.srcSubresource.layerCount = 1;
+    blit.srcOffsets[0] = (vk_offset3d_t){(i32)x, (i32)y, 0};
+    blit.srcOffsets[1] =
+        (vk_offset3d_t){(i32)(x + width), (i32)(y + height), 1};
+    blit.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    blit.dstSubresource.layerCount = 1;
+    blit.dstOffsets[0] = (vk_offset3d_t){0, 0, 0};
+    blit.dstOffsets[1] =
+        (vk_offset3d_t){(i32)dst->texture.width, (i32)dst->texture.height, 1};
+
+    vkCmdBlitImage(cmd, source, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dest,
+                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit,
+                   VK_FILTER_LINEAR);
+  } else
+    vkCmdCopyImage(cmd, source, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dest,
+                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 
   vk_image_memory_barrier_t back[2] = {0};
   back[0].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;

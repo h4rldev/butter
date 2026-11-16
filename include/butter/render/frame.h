@@ -64,7 +64,10 @@ vk_result_t butter_end_frame(arena_t *arena, butter_t *butter,
  * rebuilt by butter on resize and anti-aliasing changes; no per-frame GPU
  * allocation happens, so it is safe to call every frame. Use a dedicated
  * target, not the target of the open pass, and keep it alive until the frame's
- * GPU work completes.
+ * GPU work completes. A region larger than @c dst is blitted down into the
+ * whole destination with linear filtering instead of copied, so a smaller
+ * target gives a cheap prefiltered backdrop - the downsample step of a blurred
+ * glass panel needs no full-resolution copy.
  *
  * @param butter The butter context.
  * @param dst The target to copy the frame into.
@@ -77,7 +80,7 @@ vk_result_t butter_end_frame(arena_t *arena, butter_t *butter,
  * - @c butter must be a valid butter context.
  * - @c dst must be a valid target, not the target of the open pass.
  * - @ref butter_begin_frame must have been called and its pass still open.
- * - The region must lie inside the current extent and fit @c dst.
+ * - The region must lie inside the current extent.
  *
  * @return @c dst's texture, or null on failure.
  */

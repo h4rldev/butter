@@ -94,6 +94,7 @@ typedef VkImageMemoryBarrier vk_image_memory_barrier_t;
 typedef VkImageSubresourceLayers vk_image_subresource_layers_t;
 typedef VkImageSubresourceRange vk_image_subresource_range_t;
 typedef VkImageCopy vk_image_copy_t;
+typedef VkImageBlit vk_image_blit_t;
 typedef VkImageUsageFlags vk_image_usage_flags_t;
 typedef VkImageLayout vk_image_layout_t;
 typedef VkAccessFlags vk_access_flags_t;

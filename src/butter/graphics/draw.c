@@ -24,6 +24,7 @@ void butter_submit_draws(butter_t *butter, const butter_draw_cmd_t *cmds,
     return;
   }
 
+  butter->stats.draws_frame += count;
   vk_extent2d_t extent = butter->pass_extent;
   vk_viewport_t viewport = {0};
   viewport.x = 0.0f;

@@ -164,6 +164,8 @@ typedef struct butter_stats_state {
   atomic_u64 vram_used;
   atomic_u64 vram_budget;
   atomic_b32 vram_budget_valid;
+  u32 draws_frame;       // draw calls submitted this frame
+  atomic_u32 last_draws; // draw calls submitted in the last frame
   atomic_u32 fps_frame_count;
   atomic_u64 fps_window_start_ns;
 } butter_stats_state_t;

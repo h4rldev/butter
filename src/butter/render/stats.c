@@ -20,6 +20,7 @@ b32 butter_get_stats(butter_t *butter, butter_stats_t *out) {
                           ? atomic_load(&context->stats.last_gpu_frame_ms)
                           : 0.0f;
   out->frame_rate = atomic_load(&context->stats.last_frame_rate);
+  out->draws = atomic_load(&context->stats.last_draws);
 
   f32 frame_budget_ms =
       context->target_refresh_rate > 0.0f

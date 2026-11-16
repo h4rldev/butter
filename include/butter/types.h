@@ -178,6 +178,7 @@ typedef struct {
   f32 gpu_frame_ms;
   f32 gpu_usage_pct;
   f32 frame_rate;
+  u32 draws; // draw calls submitted in the last frame
   u64 vram_total;
   u64 vram_used;
   u64 vram_budget;

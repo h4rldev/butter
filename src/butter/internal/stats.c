@@ -126,6 +126,9 @@ void butter_stats_begin_frame(butter_context_t *context,
   if (!context || !cmd)
     return;
 
+  atomic_store(&context->stats.last_draws, context->stats.draws_frame);
+  context->stats.draws_frame = 0;
+
   vk_query_pool_t pool = context->stats.timestamp_pool;
   if (!pool)
     return;

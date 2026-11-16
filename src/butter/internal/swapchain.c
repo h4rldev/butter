@@ -836,16 +836,16 @@ b32 butter_create_swapchain(butter_context_t *context, u32 latency_cap,
       }
   }
 
-  if (desired_width > 0 && desired_height > 0) {
+  b32 caps_extent = caps.currentExtent.width != UINT32_MAX &&
+                    caps.currentExtent.height != UINT32_MAX;
+  if (caps_extent) {
+    context->extent = caps.currentExtent;
+  } else if (desired_width > 0 && desired_height > 0) {
     context->extent.width = desired_width;
     context->extent.height = desired_height;
   } else {
-    context->extent = caps.currentExtent;
-    if (context->extent.width == UINT32_MAX ||
-        context->extent.height == UINT32_MAX) {
-      context->extent.width = 800;
-      context->extent.height = 600;
-    }
+    context->extent.width = 800;
+    context->extent.height = 600;
   }
 
   context->extent.width = MIN(context->extent.width, caps.maxImageExtent.width);
